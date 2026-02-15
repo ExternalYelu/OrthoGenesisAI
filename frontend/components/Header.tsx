@@ -1,0 +1,37 @@
+import Link from "next/link";
+import { Button } from "./Button";
+
+export function Header() {
+  return (
+    <header className="sticky top-0 z-40 bg-white/70 backdrop-blur-lg">
+      <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
+        <Link href="/" className="text-lg font-semibold tracking-tight text-ink">
+          OrthoGenesisAI
+        </Link>
+        <nav className="hidden items-center gap-6 text-sm text-slate md:flex">
+          <Link className="link-underline" href="/upload">
+            Upload
+          </Link>
+          <Link className="link-underline" href="/processing">
+            Processing
+          </Link>
+          <Link className="link-underline" href="/viewer">
+            Viewer
+          </Link>
+          <Link className="link-underline" href="/export">
+            Export
+          </Link>
+          <Link className="link-underline" href="/patient">
+            Patient Mode
+          </Link>
+          <Link className="link-underline" href="/auth">
+            Auth
+          </Link>
+        </nav>
+        <div className="hidden md:block">
+          <Button href="/upload" label="Upload X-rays" />
+        </div>
+      </div>
+    </header>
+  );
+}
