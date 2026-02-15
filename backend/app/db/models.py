@@ -71,7 +71,6 @@ class Reconstruction(Base):
 
     case: Mapped[Case] = relationship(back_populates="reconstructions")
 
-
 class AuditLog(Base):
     __tablename__ = "audit_logs"
 
@@ -91,3 +90,4 @@ class ShareLink(Base):
     token: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     expires_at: Mapped[datetime]
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    
