@@ -8,7 +8,6 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
-from app.core.security import get_password_hash
 from app.db import models
 from app.reconstruction.pipeline import ReconstructionPipeline
 from app.reconstruction.engine import XRayInput
@@ -29,7 +28,7 @@ def _get_test_user(db: Session) -> models.User:
         email="test@orthogenesis.ai",
         full_name="Test User",
         role="admin",
-        hashed_password=get_password_hash("test-password"),
+        hashed_password="test-mode-password",
     )
     db.add(user)
     db.commit()

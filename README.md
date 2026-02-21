@@ -31,6 +31,9 @@ npm install
 npm run dev
 ```
 
+If uploads fail with `Failed to fetch`, ensure the backend is running and the frontend API URL is set to `/api`
+(`frontend/.env.local` with `NEXT_PUBLIC_API_URL=/api`), then restart the frontend.
+
 ## Notes
 
 - The ML reconstruction engine is stubbed behind a clean interface; swap in a production model by implementing `ReconstructionEngine` in `backend/app/reconstruction/engine.py`.

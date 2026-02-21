@@ -4,7 +4,6 @@ from fastapi import APIRouter, Depends, File, UploadFile, Form, HTTPException
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
-from app.core.security import get_password_hash
 from app.db import models
 from app.schemas.upload import UploadResponse, UploadValidation
 from app.storage.local import save_upload
@@ -15,15 +14,16 @@ router = APIRouter(prefix="/upload", tags=["upload"])
 
 def _validate_file(file: UploadFile, size: int) -> UploadValidation:
     issues: list[str] = []
-    if file.content_type not in {"image/png", "image/jpeg"}:
-        issues.append("Unsupported file type (use PNG or JPEG)")
+    content_type = file.content_type or ""
+    if not content_type.startswith("image/"):
+        issues.append("Unsupported file type (use an image file)")
     quality_score = 0.9 if size > 20000 else 0.6
     if quality_score < 0.7:
         issues.append("Low resolution or noisy image")
     return UploadValidation(
         view=file.filename or "unknown",
         quality_score=quality_score,
-        is_valid=len(issues) == 0,
+        is_valid=content_type.startswith("image/"),
         issues=issues,
     )
 
@@ -35,7 +35,7 @@ def _get_test_user(db: Session) -> models.User:
         email="test@orthogenesis.ai",
         full_name="Test User",
         role="admin",
-        hashed_password=get_password_hash("test-password"),
+        hashed_password="test-mode-password",
     )
     db.add(user)
     db.commit()

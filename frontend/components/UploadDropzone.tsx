@@ -40,7 +40,7 @@ export function UploadDropzone() {
       setMessage("Reconstruction complete. Open the viewer to inspect the model.");
     } catch (error) {
       setStatus("error");
-      setMessage("Upload or reconstruction failed. Try another image.");
+      setMessage(error instanceof Error ? error.message : "Upload or reconstruction failed. Try another image.");
     }
   };
 

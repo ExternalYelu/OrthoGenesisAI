@@ -1,4 +1,4 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api";
 
 export async function uploadXrays(payload: FormData, token?: string) {
   const response = await fetch(`${API_URL}/upload/xrays`, {
@@ -7,7 +7,13 @@ export async function uploadXrays(payload: FormData, token?: string) {
     body: payload
   });
   if (!response.ok) {
-    throw new Error("Upload failed");
+    const text = await response.text();
+    try {
+      const data = JSON.parse(text);
+      throw new Error(data.detail || data.error || "Upload failed");
+    } catch {
+      throw new Error(text || "Upload failed");
+    }
   }
   return response.json();
 }
@@ -22,7 +28,13 @@ export async function reconstruct(caseId: number, token?: string) {
     body: JSON.stringify({ case_id: caseId })
   });
   if (!response.ok) {
-    throw new Error("Reconstruction failed");
+    const text = await response.text();
+    try {
+      const data = JSON.parse(text);
+      throw new Error(data.detail || data.error || "Reconstruction failed");
+    } catch {
+      throw new Error(text || "Reconstruction failed");
+    }
   }
   return response.json();
 }
