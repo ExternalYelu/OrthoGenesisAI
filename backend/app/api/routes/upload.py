@@ -1,25 +1,22 @@
 from __future__ import annotations
 
-from io import BytesIO
-
 from fastapi import APIRouter, Depends, File, UploadFile, Form, HTTPException
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, require_role
+from app.api.deps import get_db
+from app.core.security import get_password_hash
 from app.db import models
 from app.schemas.upload import UploadResponse, UploadValidation
-from app.storage.s3 import upload_file
+from app.storage.local import save_upload
 from app.services.audit import log_event
 
 router = APIRouter(prefix="/upload", tags=["upload"])
 
-REQUIRED_VIEWS = ["ap", "lateral", "oblique"]
-
 
 def _validate_file(file: UploadFile, size: int) -> UploadValidation:
     issues: list[str] = []
-    if file.content_type not in {"image/png", "image/jpeg", "application/dicom"}:
-        issues.append("Unsupported file type")
+    if file.content_type not in {"image/png", "image/jpeg"}:
+        issues.append("Unsupported file type (use PNG or JPEG)")
     quality_score = 0.9 if size > 20000 else 0.6
     if quality_score < 0.7:
         issues.append("Low resolution or noisy image")
@@ -30,22 +27,36 @@ def _validate_file(file: UploadFile, size: int) -> UploadValidation:
         issues=issues,
     )
 
+def _get_test_user(db: Session) -> models.User:
+    user = db.query(models.User).filter(models.User.email == "test@orthogenesis.ai").first()
+    if user:
+        return user
+    user = models.User(
+        email="test@orthogenesis.ai",
+        full_name="Test User",
+        role="admin",
+        hashed_password=get_password_hash("test-password"),
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
 
 @router.post("/xrays", response_model=UploadResponse)
 async def upload_xrays(
-    title: str = Form(...),
+    title: str = Form("Test Case"),
     patient_id: str | None = Form(None),
-    views: str = Form(...),
+    views: str | None = Form(None),
     files: list[UploadFile] = File(...),
     db: Session = Depends(get_db),
-    user: models.User = Depends(require_role(["doctor", "admin"])),
 ):
-    view_list = [v.strip().lower() for v in views.split(",") if v.strip()]
-    if not all(view in view_list for view in REQUIRED_VIEWS):
-        raise HTTPException(status_code=400, detail="Missing required views")
-    if len(files) != len(view_list):
-        raise HTTPException(status_code=400, detail="Each view requires a file")
+    if len(files) != 1:
+        raise HTTPException(status_code=400, detail="Upload exactly one image for test mode")
 
+    view_list = [v.strip().lower() for v in views.split(",") if v.strip()] if views else ["single"]
+
+    user = _get_test_user(db)
     case = models.Case(title=title, patient_id=patient_id, owner_id=user.id)
     db.add(case)
     db.commit()
@@ -56,11 +67,10 @@ async def upload_xrays(
         validation = _validate_file(file, len(content))
         if not validation.is_valid:
             raise HTTPException(status_code=400, detail=f"Invalid {view} image")
-        key = upload_file(file_obj=BytesIO(content), content_type=file.content_type or "image/png", prefix="xrays")
+        key = save_upload(content, file.filename or "xray.png")
         xray = models.XRayImage(case_id=case.id, view=view, file_key=key, quality_score=validation.quality_score)
         db.add(xray)
 
     db.commit()
     log_event(db, user.id, "upload", f"case:{case.id}", f"{len(files)} images uploaded")
-    return UploadResponse(case_id=case.id, received=len(files), required_views=REQUIRED_VIEWS)
-
+    return UploadResponse(case_id=case.id, received=len(files), required_views=view_list)

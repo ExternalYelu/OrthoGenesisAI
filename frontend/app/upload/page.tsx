@@ -11,7 +11,7 @@ export default function UploadPage() {
       <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-10 px-6 py-16">
         <SectionHeader
           title="Secure Upload"
-          subtitle="Upload multi-view X-rays for AI reconstruction."
+          subtitle="Upload a single X-ray for test-mode reconstruction."
         />
         <div className="grid gap-8 lg:grid-cols-[2fr,1fr]">
           <SurfaceCard>
@@ -21,7 +21,7 @@ export default function UploadPage() {
             <SurfaceCard>
               <p className="text-sm font-semibold text-ink">Validation checklist</p>
               <ul className="mt-3 space-y-2 text-xs text-slate">
-                <li>Minimum three views per case</li>
+                <li>Single image test mode enabled</li>
                 <li>Consistent patient positioning</li>
                 <li>Clear bone boundaries</li>
               </ul>

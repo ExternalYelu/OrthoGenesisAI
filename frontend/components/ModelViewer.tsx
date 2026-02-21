@@ -3,8 +3,7 @@
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls, useGLTF } from "@react-three/drei";
 import { useEffect, useState } from "react";
-import { exportModel } from "@/lib/api";
-import { getToken } from "@/lib/auth";
+import { getModelFileUrl } from "@/lib/api";
 
 function GltfModel({ url, transparent }: { url: string; transparent: boolean }) {
   const { scene } = useGLTF(url);
@@ -26,23 +25,16 @@ function GltfModel({ url, transparent }: { url: string; transparent: boolean }) 
 
 export function ModelViewer() {
   const [transparent, setTransparent] = useState(false);
-  const [token, setToken] = useState("");
   const [modelId, setModelId] = useState("1");
   const [gltfUrl, setGltfUrl] = useState<string | null>(null);
   const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
   const [message, setMessage] = useState("");
 
-  useEffect(() => {
-    const stored = getToken();
-    if (stored) setToken(stored);
-  }, []);
-
   const handleLoad = async () => {
     try {
       setStatus("loading");
       setMessage("Fetching model...");
-      const response = await exportModel(Number(modelId), "gltf", token || undefined);
-      setGltfUrl(response.download_url);
+      setGltfUrl(getModelFileUrl(Number(modelId)));
       setStatus("idle");
       setMessage("Model loaded.");
     } catch (error) {
@@ -110,14 +102,6 @@ export function ModelViewer() {
                 className="mt-2 w-full rounded-xl border border-slate/20 px-3 py-2 text-sm"
                 value={modelId}
                 onChange={(event) => setModelId(event.target.value)}
-              />
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-slate/50">Auth Token</p>
-              <input
-                className="mt-2 w-full rounded-xl border border-slate/20 px-3 py-2 text-sm"
-                value={token}
-                onChange={(event) => setToken(event.target.value)}
               />
             </div>
           </div>

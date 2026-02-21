@@ -18,13 +18,7 @@ cp backend/.env.example backend/.env
 cp frontend/.env.example frontend/.env.local
 ```
 
-2. Start services
-
-```bash
-docker compose -f infra/docker-compose.yml up --build
-```
-
-3. Dev servers
+2. Dev servers
 
 ```bash
 # backend
@@ -40,5 +34,5 @@ npm run dev
 ## Notes
 
 - The ML reconstruction engine is stubbed behind a clean interface; swap in a production model by implementing `ReconstructionEngine` in `backend/app/reconstruction/engine.py`.
-- S3-compatible storage uses MinIO locally; set real AWS credentials for production.
+- Test mode uses local file storage and SQLite for fast setup. For production, swap to Postgres and S3.
 - HIPAA and clinical compliance require environment hardening and infrastructure controls beyond code (auditing, encryption, BAAs).

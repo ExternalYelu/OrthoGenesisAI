@@ -31,6 +31,7 @@ export function BonePreview() {
         <OrbitControls enableZoom={false} enablePan={false} />
       </Canvas>
     </div>
+
   );
 }
 

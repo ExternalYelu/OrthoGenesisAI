@@ -45,7 +45,15 @@ export async function exportModel(modelId: number, format: string, token?: strin
   if (!response.ok) {
     throw new Error("Export failed");
   }
-  return response.json();
+  const data = await response.json();
+  if (data.download_url?.startsWith("/")) {
+    data.download_url = `${API_URL}${data.download_url}`;
+  }
+  return data;
+}
+
+export function getModelFileUrl(modelId: number) {
+  return `${API_URL}/reconstruct/model/${modelId}/file`;
 }
 
 export async function login(email: string, password: string) {

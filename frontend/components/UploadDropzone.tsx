@@ -1,59 +1,52 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Button } from "./Button";
-import { uploadXrays } from "@/lib/api";
-import { getToken } from "@/lib/auth";
-
-const requiredViews = ["AP", "Lateral", "Oblique"];
+import { reconstruct, uploadXrays } from "@/lib/api";
 
 export function UploadDropzone() {
   const [files, setFiles] = useState<File[]>([]);
   const [title, setTitle] = useState("Case A");
   const [patientId, setPatientId] = useState("");
-  const [views, setViews] = useState("ap,lateral,oblique");
-  const [token, setToken] = useState("");
   const [status, setStatus] = useState<"idle" | "uploading" | "done" | "error">("idle");
   const [message, setMessage] = useState("");
+  const [modelId, setModelId] = useState<number | null>(null);
 
   const handleFiles = (newFiles: FileList | null) => {
     if (!newFiles) return;
     setFiles(Array.from(newFiles));
   };
 
-  useEffect(() => {
-    const stored = getToken();
-    if (stored) setToken(stored);
-  }, []);
-
   const handleUpload = async () => {
-    if (files.length === 0) {
+    if (files.length !== 1) {
       setStatus("error");
-      setMessage("Select files before uploading.");
+      setMessage("Select exactly one X-ray image.");
       return;
     }
 
     const form = new FormData();
     form.append("title", title);
     if (patientId) form.append("patient_id", patientId);
-    form.append("views", views);
     files.forEach((file) => form.append("files", file));
 
     try {
       setStatus("uploading");
       setMessage("Uploading...");
-      await uploadXrays(form, token || undefined);
+      const upload = await uploadXrays(form);
+      setMessage("Reconstructing...");
+      const reconstruction = await reconstruct(upload.case_id);
+      setModelId(reconstruction.id);
       setStatus("done");
-      setMessage("Upload complete. Ready for reconstruction.");
+      setMessage("Reconstruction complete. Open the viewer to inspect the model.");
     } catch (error) {
       setStatus("error");
-      setMessage("Upload failed. Check token and file validity.");
+      setMessage("Upload or reconstruction failed. Try another image.");
     }
   };
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2">
         <div className="rounded-2xl border border-slate/10 bg-white/80 p-4">
           <p className="text-xs uppercase tracking-[0.3em] text-slate/50">Case</p>
           <input
@@ -70,53 +63,18 @@ export function UploadDropzone() {
             onChange={(event) => setPatientId(event.target.value)}
           />
         </div>
-        <div className="rounded-2xl border border-slate/10 bg-white/80 p-4">
-          <p className="text-xs uppercase tracking-[0.3em] text-slate/50">Views</p>
-          <input
-            className="mt-2 w-full rounded-xl border border-slate/20 px-3 py-2 text-sm"
-            value={views}
-            onChange={(event) => setViews(event.target.value)}
-          />
-        </div>
       </div>
 
       <div className="rounded-3xl border border-dashed border-slate/30 bg-white/70 p-8 text-center">
         <p className="text-sm font-semibold text-ink">Drag and drop X-rays</p>
         <p className="text-xs text-slate">
-          DICOM, PNG, JPEG. Minimum 3 angles required.
+          PNG or JPEG. Single image test mode.
         </p>
         <input
           className="mt-4 w-full text-sm"
           type="file"
-          multiple
-          accept=".dcm,image/png,image/jpeg"
+          accept=".png,.jpg,.jpeg,image/png,image/jpeg"
           onChange={(event) => handleFiles(event.target.files)}
-        />
-      </div>
-
-      <div className="rounded-2xl border border-slate/10 bg-white/80 p-4">
-        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate/50">
-          Required Views
-        </p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {requiredViews.map((view) => (
-            <span
-              key={view}
-              className="rounded-full bg-mist px-3 py-1 text-xs font-medium text-slate"
-            >
-              {view}
-            </span>
-          ))}
-        </div>
-      </div>
-
-      <div className="rounded-2xl border border-slate/10 bg-white/80 p-4">
-        <p className="text-xs uppercase tracking-[0.3em] text-slate/50">Auth Token</p>
-        <input
-          className="mt-2 w-full rounded-xl border border-slate/20 px-3 py-2 text-sm"
-          value={token}
-          onChange={(event) => setToken(event.target.value)}
-          placeholder="Bearer token"
         />
       </div>
 
@@ -135,9 +93,15 @@ export function UploadDropzone() {
         </p>
       ) : null}
 
+      {modelId ? (
+        <p className="text-xs text-slate">
+          Model ID: <span className="font-semibold text-ink">{modelId}</span>
+        </p>
+      ) : null}
+
       <div className="flex flex-wrap items-center gap-4">
         <Button
-          label={status === "uploading" ? "Uploading..." : "Validate & Upload"}
+          label={status === "uploading" ? "Processing..." : "Upload & Reconstruct"}
           onClick={handleUpload}
         />
       </div>
