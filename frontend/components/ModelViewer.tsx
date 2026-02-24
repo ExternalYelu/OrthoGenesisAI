@@ -3,6 +3,7 @@
 import { Canvas, useFrame } from "@react-three/fiber";
 import {
   Bounds,
+  ContactShadows,
   Environment,
   GizmoHelper,
   GizmoViewport,
@@ -82,13 +83,17 @@ function cloneMaterialWithTransparency(material: Material, transparent: boolean)
     roughness?: number;
     metalness?: number;
     flatShading?: boolean;
+    emissive?: { set: (value: string) => void };
+    emissiveIntensity?: number;
   };
-  if (cloned.color) cloned.color.set("#dfe5f2");
-  if (typeof cloned.roughness === "number") cloned.roughness = 0.78;
-  if (typeof cloned.metalness === "number") cloned.metalness = 0.06;
+  if (cloned.color) cloned.color.set("#f4f7ff");
+  if (cloned.emissive) cloned.emissive.set("#d5deef");
+  if (typeof cloned.emissiveIntensity === "number") cloned.emissiveIntensity = 0.01;
+  if (typeof cloned.roughness === "number") cloned.roughness = 0.45;
+  if (typeof cloned.metalness === "number") cloned.metalness = 0.02;
   if (typeof cloned.flatShading === "boolean") cloned.flatShading = false;
   cloned.transparent = true;
-  cloned.opacity = transparent ? 0.6 : 1;
+  cloned.opacity = transparent ? 0.36 : 1;
   cloned.needsUpdate = true;
   return cloned;
 }
@@ -108,6 +113,8 @@ function prepareScene(
     if (!mesh.isMesh || !mesh.geometry || !mesh.material) return;
 
     mesh.geometry = mesh.geometry.clone();
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
     if (smoothingEnabled && smoothingLevel > 0) {
       smoothGeometry(mesh.geometry, smoothingAmount, iterations);
     }
@@ -128,12 +135,12 @@ function RotatingModel({
   object,
   axis,
   speed,
-  upright
+  planeAligned
 }: {
   object: Object3D;
   axis: RotationAxis;
   speed: number;
-  upright: boolean;
+  planeAligned: boolean;
 }) {
   const groupRef = useRef<Group>(null);
 
@@ -146,7 +153,7 @@ function RotatingModel({
   });
 
   return (
-    <group ref={groupRef} rotation={upright ? [-Math.PI / 2, 0, 0] : [0, 0, 0]}>
+    <group ref={groupRef} rotation={planeAligned ? [0, 0, 0] : [-Math.PI / 2, 0, 0]}>
       <primitive object={object} />
     </group>
   );
@@ -157,7 +164,7 @@ function GltfModel({
   transparent,
   smoothingEnabled,
   smoothingLevel,
-  upright,
+  planeAligned,
   rotationAxis,
   rotationSpeed
 }: {
@@ -165,7 +172,7 @@ function GltfModel({
   transparent: boolean;
   smoothingEnabled: boolean;
   smoothingLevel: number;
-  upright: boolean;
+  planeAligned: boolean;
   rotationAxis: RotationAxis;
   rotationSpeed: number;
 }) {
@@ -182,7 +189,7 @@ function GltfModel({
         object={processedScene}
         axis={rotationAxis}
         speed={rotationSpeed}
-        upright={upright}
+        planeAligned={planeAligned}
       />
     </Bounds>
   );
@@ -196,9 +203,10 @@ export function ModelViewer() {
   const [message, setMessage] = useState("");
   const [smoothingLevel, setSmoothingLevel] = useState(0.18);
   const [smoothingEnabled, setSmoothingEnabled] = useState(false);
-  const [upright, setUpright] = useState(true);
+  const [planeAligned, setPlaneAligned] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showAxes, setShowAxes] = useState(true);
+  const [lockAbovePlane, setLockAbovePlane] = useState(true);
   const [rotationAxis, setRotationAxis] = useState<RotationAxis>("none");
   const [rotationSpeed, setRotationSpeed] = useState(0.6);
 
@@ -263,49 +271,52 @@ export function ModelViewer() {
     <div className="grid gap-7 lg:grid-cols-[2.2fr,1fr]">
       <div
         ref={viewerRef}
-        className="relative overflow-hidden rounded-[28px] border border-white/70 bg-gradient-to-br from-white to-[#edf5ff] p-4 shadow-soft"
+        className="relative overflow-hidden rounded-[24px] border border-slate-200 bg-white p-5 shadow-soft"
       >
-        <div className="absolute -right-20 -top-20 h-56 w-56 rounded-full bg-cyan/20 blur-3xl" />
-        <div className="absolute -bottom-24 -left-24 h-64 w-64 rounded-full bg-teal/10 blur-3xl" />
-
         <div className="relative z-10 flex flex-wrap items-center justify-between gap-3 pb-4">
           <div>
-            <p className="text-sm font-semibold text-ink">3D Reconstruction</p>
-            <p className="text-xs text-slate">High-clarity model viewer with optional smoothing and axis control</p>
+            <p className="text-sm font-semibold tracking-wide text-ink">3D Reconstruction</p>
+            <p className="text-xs text-slate-500">High-contrast anatomy viewer with axis control and smoothing</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <button
-              className="rounded-full border border-slate/20 bg-white/80 px-4 py-2 text-xs font-semibold text-slate"
+              className="rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate"
               onClick={() => setTransparent((prev) => !prev)}
             >
               {transparent ? "Solid" : "Transparent"}
             </button>
             <button
-              className="rounded-full border border-slate/20 bg-white/80 px-4 py-2 text-xs font-semibold text-slate"
+              className="rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate"
               onClick={() => setSmoothingEnabled((prev) => !prev)}
             >
               {smoothingEnabled ? "Smoothed On" : "Smoothed Off"}
             </button>
             <button
-              className="rounded-full border border-slate/20 bg-white/80 px-4 py-2 text-xs font-semibold text-slate"
-              onClick={() => setUpright((prev) => !prev)}
+              className="rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate"
+              onClick={() => setPlaneAligned((prev) => !prev)}
             >
-              {upright ? "Free Orientation" : "Upright"}
+              {planeAligned ? "Plane Aligned" : "Vertical"}
             </button>
             <button
-              className="rounded-full border border-slate/20 bg-white/80 px-4 py-2 text-xs font-semibold text-slate"
+              className="rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate"
               onClick={() => setShowAxes((prev) => !prev)}
             >
               {showAxes ? "Hide Axes" : "Show Axes"}
             </button>
             <button
-              className="rounded-full border border-slate/20 bg-white/80 px-4 py-2 text-xs font-semibold text-slate"
+              className="rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate"
+              onClick={() => setLockAbovePlane((prev) => !prev)}
+            >
+              {lockAbovePlane ? "Above-Plane Lock" : "Free Orbit"}
+            </button>
+            <button
+              className="rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate"
               onClick={toggleFullscreen}
             >
               {isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
             </button>
             <button
-              className="rounded-full bg-accent px-4 py-2 text-xs font-semibold text-white"
+              className="rounded-full bg-cyan-400 px-4 py-2 text-xs font-semibold text-slate-900 shadow-lg shadow-cyan-500/30"
               onClick={handleLoad}
             >
               {status === "loading" ? "Loading..." : "Load Model"}
@@ -313,12 +324,21 @@ export function ModelViewer() {
           </div>
         </div>
 
-        <div className={`${isFullscreen ? "h-[calc(100vh-92px)]" : "h-[520px]"} relative rounded-2xl border border-white/70 bg-white/70`}>
-          <Canvas camera={{ position: [2.5, 1.9, 2.4], fov: 40 }}>
-            <ambientLight intensity={0.72} />
-            <directionalLight position={[4, 5, 3]} intensity={1.6} />
-            <directionalLight position={[-2, 1, -3]} intensity={0.55} />
+        <div className={`${isFullscreen ? "h-[calc(100vh-92px)]" : "h-[560px]"} relative rounded-2xl border border-slate-200 bg-[#eef2f8]`}>
+          <Canvas shadows camera={{ position: [2.7, 2.2, 2.8], fov: 38 }}>
+            <color attach="background" args={["#eef2f8"]} />
+            <ambientLight intensity={0.7} />
+            <hemisphereLight args={["#f8fbff", "#b9c5d8", 0.52]} />
+            <directionalLight castShadow position={[4.2, 6.8, 4.8]} intensity={2.4} shadow-mapSize-width={2048} shadow-mapSize-height={2048} />
+            <directionalLight position={[-4, 2.5, -3]} intensity={1.2} />
+            <directionalLight position={[0, 3, -6]} intensity={0.95} />
             <Environment preset="studio" />
+
+            <mesh receiveShadow rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.06, 0]}>
+              <planeGeometry args={[900, 900]} />
+              <meshStandardMaterial color="#9aa9c0" roughness={0.9} metalness={0} />
+            </mesh>
+            <gridHelper args={[120, 20, "#8e9db5", "#a6b4ca"]} position={[0, -0.05, 0]} />
 
             {gltfUrl ? (
               <GltfModel
@@ -326,7 +346,7 @@ export function ModelViewer() {
                 transparent={transparent}
                 smoothingEnabled={smoothingEnabled}
                 smoothingLevel={smoothingLevel}
-                upright={upright}
+                planeAligned={planeAligned}
                 rotationAxis={rotationAxis}
                 rotationSpeed={rotationSpeed}
               />
@@ -338,16 +358,19 @@ export function ModelViewer() {
             )}
 
             {showAxes ? <axesHelper args={[1.25]} /> : null}
+            <ContactShadows position={[0, -0.08, 0]} opacity={0.38} scale={12} blur={1.45} far={4.2} />
 
             <OrbitControls
               makeDefault
               enableDamping
-              dampingFactor={0.08}
-              rotateSpeed={0.85}
-              zoomSpeed={0.85}
+              dampingFactor={0.07}
+              rotateSpeed={0.8}
+              zoomSpeed={0.9}
               panSpeed={0.8}
               minDistance={0.4}
               maxDistance={9}
+              minPolarAngle={0.03}
+              maxPolarAngle={lockAbovePlane ? Math.PI * 0.5 : Math.PI - 0.03}
             />
 
             <GizmoHelper alignment="bottom-right" margin={[90, 90]}>
@@ -364,7 +387,7 @@ export function ModelViewer() {
       </div>
 
       <div className="space-y-4">
-        <div className="rounded-3xl border border-white/70 bg-white/85 p-5 shadow-soft">
+        <div className="rounded-3xl border border-slate-200/70 bg-white p-5 shadow-soft">
           <p className="text-sm font-semibold text-ink">Viewer Controls</p>
           <div className="mt-4 space-y-4">
             <div>
@@ -422,12 +445,13 @@ export function ModelViewer() {
           </div>
         </div>
 
-        <div className="rounded-3xl border border-white/70 bg-white/85 p-5 shadow-soft">
+        <div className="rounded-3xl border border-slate-200/70 bg-white p-5 shadow-soft">
           <p className="text-sm font-semibold text-ink">Navigation</p>
           <ul className="mt-2 space-y-2 text-xs text-slate">
             <li>Left drag: rotate</li>
             <li>Right drag: pan</li>
             <li>Wheel: zoom</li>
+            <li>Use Above-Plane Lock for clinical top-side inspection</li>
             <li>Use gizmo at bottom-right to align to principal axes</li>
           </ul>
         </div>
