@@ -7,7 +7,7 @@ from typing import Iterable
 import numpy as np
 import torch
 import trimesh
-from PIL import Image, ImageOps
+from PIL import Image, ImageFilter, ImageOps
 
 from app.storage.local import save_model
 
@@ -68,15 +68,8 @@ class ReconstructionEngine:
         return ReconstructionResult(confidence=0.86, mesh_key=mesh_key, notes="Stub mesh")
 
     def _mesh_from_xray(self, data: bytes) -> str:
-        image = Image.open(BytesIO(data))
-        image = ImageOps.grayscale(image)
-        image = ImageOps.autocontrast(image)
-        image = image.resize((128, 128))
-
-        heightmap = np.asarray(image, dtype=np.float32)
-        heightmap = (heightmap - heightmap.min()) / (heightmap.max() - heightmap.min() + 1e-6)
-
-        mesh = self._heightmap_to_mesh(heightmap, height_scale=0.4)
+        heightmap = self._extract_bone_heightmap(data, target_size=256, blur_sigma=1.5)
+        mesh = self._heightmap_to_mesh(heightmap, height_scale=30.0)
         glb = mesh.export(file_type="glb")
         if isinstance(glb, str):
             glb_bytes = glb.encode("utf-8")
@@ -85,64 +78,53 @@ class ReconstructionEngine:
         mesh_key = save_model(glb_bytes, ext="glb")
         return mesh_key
 
+    def _extract_bone_heightmap(self, data: bytes, target_size: int, blur_sigma: float) -> np.ndarray:
+        image = Image.open(BytesIO(data)).convert("L")
+        image.thumbnail((target_size, target_size), Image.Resampling.LANCZOS)
+        image = image.filter(ImageFilter.GaussianBlur(radius=blur_sigma))
+        image = ImageOps.autocontrast(image)
+
+        pixels = np.asarray(image, dtype=np.uint8)
+        pixels_f32 = pixels.astype(np.float32)
+
+        mean = float(np.mean(pixels_f32))
+        stddev = float(np.std(pixels_f32))
+        threshold = min(255.0, mean + stddev * 0.5)
+
+        bone = np.where(pixels_f32 >= threshold, pixels_f32, 0.0)
+        return bone / 255.0
+
     def _heightmap_to_mesh(self, heightmap: np.ndarray, height_scale: float) -> trimesh.Trimesh:
         rows, cols = heightmap.shape
-        xs = np.linspace(0.0, 1.0, cols, dtype=np.float32)
-        ys = np.linspace(0.0, 1.0, rows, dtype=np.float32)
-        grid_x, grid_y = np.meshgrid(xs, ys)
-        z = heightmap * height_scale
+        if rows < 2 or cols < 2:
+            raise ValueError("Heightmap is too small to build a mesh")
 
-        top_vertices = np.stack([grid_x, grid_y, z], axis=-1).reshape(-1, 3)
-        base_vertices = np.stack([grid_x, grid_y, np.zeros_like(z)], axis=-1).reshape(-1, 3)
-        vertices = np.vstack([top_vertices, base_vertices])
+        vertex_count = rows * cols
+        positions = np.zeros((vertex_count, 3), dtype=np.float32)
 
         faces: list[list[int]] = []
-        offset = rows * cols
+        for y in range(rows):
+            for x in range(cols):
+                i = y * cols + x
+                intensity = float(heightmap[y, x])
+                positions[i, 0] = (x / cols - 0.5) * cols
+                positions[i, 1] = intensity * height_scale
+                positions[i, 2] = (y / rows - 0.5) * rows
 
-        def add_quad(a: int, b: int, c: int, d: int) -> None:
-            faces.append([a, b, c])
-            faces.append([b, d, c])
+        for y in range(rows - 1):
+            for x in range(cols - 1):
+                tl = y * cols + x
+                tr = tl + 1
+                bl = (y + 1) * cols + x
+                br = bl + 1
+                faces.append([tl, bl, tr])
+                faces.append([tr, bl, br])
 
-        for i in range(rows - 1):
-            for j in range(cols - 1):
-                v0 = i * cols + j
-                v1 = v0 + 1
-                v2 = v0 + cols
-                v3 = v2 + 1
-                add_quad(v0, v2, v1, v3)
-                b0 = v0 + offset
-                b1 = v1 + offset
-                b2 = v2 + offset
-                b3 = v3 + offset
-                add_quad(b0, b1, b2, b3)
-
-        for j in range(cols - 1):
-            v0 = j
-            v1 = j + 1
-            b0 = v0 + offset
-            b1 = v1 + offset
-            add_quad(v0, v1, b0, b1)
-
-            v2 = (rows - 1) * cols + j
-            v3 = v2 + 1
-            b2 = v2 + offset
-            b3 = v3 + offset
-            add_quad(v3, v2, b3, b2)
-
-        for i in range(rows - 1):
-            v0 = i * cols
-            v1 = (i + 1) * cols
-            b0 = v0 + offset
-            b1 = v1 + offset
-            add_quad(v1, v0, b1, b0)
-
-            v2 = i * cols + (cols - 1)
-            v3 = v2 + cols
-            b2 = v2 + offset
-            b3 = v3 + offset
-            add_quad(v2, v3, b2, b3)
-
-        vertices[:, 0] -= 0.5
-        vertices[:, 1] -= 0.5
-
-        return trimesh.Trimesh(vertices=vertices, faces=np.array(faces), process=False)
+        mesh = trimesh.Trimesh(vertices=positions, faces=np.array(faces, dtype=np.int64), process=False)
+        # `fix_normals()` may require scipy via trimesh graph utilities.
+        # In test mode we keep reconstruction robust and skip hard-fail if scipy is unavailable.
+        try:
+            mesh.fix_normals()
+        except Exception:
+            pass
+        return mesh

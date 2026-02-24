@@ -1,8 +1,9 @@
 import clsx from "clsx";
 import Link from "next/link";
+import type { Route } from "next";
 
 type ButtonProps = {
-  href?: string;
+  href?: Route;
   label: string;
   variant?: "primary" | "ghost" | "outline";
   className?: string;
