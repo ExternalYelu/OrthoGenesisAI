@@ -5,6 +5,7 @@ class UploadResponse(BaseModel):
     case_id: int
     received: int
     required_views: list[str]
+    study_id: int | None = None
 
 
 class UploadValidation(BaseModel):

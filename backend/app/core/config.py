@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     s3_region: str = "us-east-1"
 
     cors_origins: str = "http://localhost:3000"
+    queue_backend: str = "local"
+    redis_url: str = "redis://localhost:6379/0"
+    reconstruction_model: str = "heightmap"
+    reconstruction_batch_size: int = 4
+    reconstruction_seed: int = 42
 
     @property
     def cors_origin_list(self) -> list[str]:
