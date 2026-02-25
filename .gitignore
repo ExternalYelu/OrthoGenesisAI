@@ -33,6 +33,8 @@ data/exports/
 
 data/confidence/
 
+data/uncertainty/
+
 backend/data/*.db
 
 frontend/*.tsbuildinfo

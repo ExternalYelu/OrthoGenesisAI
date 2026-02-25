@@ -26,6 +26,9 @@ class ReconstructionResult:
     mesh_key: str
     notes: str | None = None
     confidence_report: dict[str, Any] | None = None
+    pipeline_version: str = "heightmap-v1"
+    confidence_version: str = "confidence-v1"
+    uncertainty_map_key: str | None = None
 
 
 class ReconstructionEngine:
@@ -47,6 +50,8 @@ class ReconstructionEngine:
                 mesh_key=mesh_key,
                 notes="Single-image heightmap mesh (test mode)",
                 confidence_report=confidence_report,
+                pipeline_version="heightmap-v1",
+                confidence_version="confidence-v1",
             )
 
         obj = """# OrthoGenesisAI placeholder mesh\n"""
@@ -68,12 +73,18 @@ class ReconstructionEngine:
         mesh = trimesh.load(BytesIO(obj.encode("utf-8")), file_type="obj")
         glb = mesh.export(file_type="glb")
         mesh_key = save_model(glb, ext="glb")
-        return ReconstructionResult(confidence=0.86, mesh_key=mesh_key, notes="Stub mesh")
+        return ReconstructionResult(
+            confidence=0.86,
+            mesh_key=mesh_key,
+            notes="Stub mesh",
+            pipeline_version="stub-v1",
+            confidence_version="confidence-v1",
+        )
 
     def _mesh_from_xray(self, data: bytes) -> tuple[str, dict[str, Any]]:
-        heightmap = self._extract_bone_heightmap(data, target_size=300, blur_sigma=0.95)
+        heightmap = self._extract_bone_heightmap(data, target_size=384, blur_sigma=1.1)
         heightmap = self._clean_heightmap(heightmap)
-        mesh, confidence_report = self._heightmap_to_mesh(heightmap, height_scale=46.0, surface_floor=0.014)
+        mesh, confidence_report = self._heightmap_to_mesh(heightmap, height_scale=46.0, surface_floor=0.008)
         glb = mesh.export(file_type="glb")
         if isinstance(glb, str):
             glb_bytes = glb.encode("utf-8")
@@ -97,14 +108,12 @@ class ReconstructionEngine:
         stddev = float(np.std(pixels_f32))
         p_low = float(np.percentile(pixels_f32, 2.0))
         p_high = float(np.percentile(pixels_f32, 98.0))
-        threshold = min(255.0, max(mean + stddev * 0.28, float(np.percentile(pixels_f32, 66.0))))
+        threshold = min(255.0, max(mean + stddev * 0.35, float(np.percentile(pixels_f32, 72.0))))
 
-        # Preserve full tonal detail while suppressing non-bone background.
+        # Blend adaptive threshold with full intensity map to preserve internal bone contours.
         norm = np.clip((pixels_f32 - p_low) / max(1.0, p_high - p_low), 0.0, 1.0)
-        threshold_norm = np.clip((threshold - p_low) / max(1.0, p_high - p_low), 0.08, 0.95)
-        bone = np.clip((norm - threshold_norm) / max(0.04, 1.0 - threshold_norm), 0.0, 1.0).astype(
-            np.float32
-        )
+        mask = np.clip((pixels_f32 - threshold) / max(1.0, 255.0 - threshold), 0.0, 1.0)
+        bone = (0.58 * mask + 0.42 * np.clip(norm - 0.18, 0.0, 1.0)).astype(np.float32)
 
         if bone.size == 0:
             return np.zeros((2, 2), dtype=np.float32)
@@ -115,8 +124,8 @@ class ReconstructionEngine:
         bone = np.asarray(smooth, dtype=np.float32) / 255.0
         if np.max(bone) > 0:
             bone = bone / np.max(bone)
-        bone = np.power(bone, 0.88)
-        bone[bone < 0.006] = 0.0
+        bone = np.power(bone, 0.93)
+        bone[bone < 0.004] = 0.0
         return bone
 
     def _clean_heightmap(self, heightmap: np.ndarray) -> np.ndarray:
@@ -127,18 +136,12 @@ class ReconstructionEngine:
         if positive.size < 24:
             return heightmap
 
-        mask_floor = max(0.018, float(np.percentile(positive, 22)) * 0.55)
+        mask_floor = max(0.008, float(np.percentile(positive, 8)) * 0.35)
         binary = heightmap > mask_floor
         if not np.any(binary):
             return heightmap
 
-        # Close tiny breaks and remove isolated speckles.
-        mask_img = Image.fromarray((binary.astype(np.uint8) * 255))
-        mask_img = mask_img.filter(ImageFilter.MaxFilter(size=5))
-        mask_img = mask_img.filter(ImageFilter.MinFilter(size=5))
-        mask = np.asarray(mask_img, dtype=np.uint8) > 127
-
-        mask = self._largest_connected_component(mask)
+        mask = self._largest_connected_component(binary)
         if not np.any(mask):
             return heightmap
 
@@ -146,10 +149,9 @@ class ReconstructionEngine:
         mask = self._fill_holes(mask)
 
         cleaned = np.where(mask, heightmap, 0.0).astype(np.float32)
-        cleaned[(mask) & (cleaned < 0.012)] = 0.012
 
         ys, xs = np.where(mask)
-        margin = 6
+        margin = 8
         y0 = max(0, int(ys.min()) - margin)
         y1 = min(cleaned.shape[0], int(ys.max()) + margin + 1)
         x0 = max(0, int(xs.min()) - margin)
@@ -375,12 +377,16 @@ class ReconstructionEngine:
         )
         inferred_ratio = float(np.mean(used_confidence < adjusted_threshold))
         overall_confidence = float(np.mean(used_confidence))
+        bins = np.linspace(0.0, 1.0, 11)
+        hist, _ = np.histogram(used_confidence, bins=bins)
 
         return {
             "overall_confidence": round(overall_confidence, 4),
             "observed_ratio": round(observed_ratio, 4),
             "adjusted_ratio": round(adjusted_ratio, 4),
             "inferred_ratio": round(inferred_ratio, 4),
+            "vertex_count": int(used_confidence.size),
+            "confidence_histogram_10bin": hist.tolist(),
             "observed_threshold": observed_threshold,
             "adjusted_threshold": adjusted_threshold,
             "surface_floor": round(float(surface_floor), 4),
