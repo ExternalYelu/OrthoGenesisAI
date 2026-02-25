@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass
 from io import BytesIO
 from typing import Iterable
@@ -69,7 +70,8 @@ class ReconstructionEngine:
 
     def _mesh_from_xray(self, data: bytes) -> str:
         heightmap = self._extract_bone_heightmap(data, target_size=300, blur_sigma=0.95)
-        mesh = self._heightmap_to_mesh(heightmap, height_scale=46.0, surface_floor=0.0)
+        heightmap = self._clean_heightmap(heightmap)
+        mesh = self._heightmap_to_mesh(heightmap, height_scale=46.0, surface_floor=0.014)
         glb = mesh.export(file_type="glb")
         if isinstance(glb, str):
             glb_bytes = glb.encode("utf-8")
@@ -114,6 +116,106 @@ class ReconstructionEngine:
         bone[bone < 0.006] = 0.0
         return bone
 
+    def _clean_heightmap(self, heightmap: np.ndarray) -> np.ndarray:
+        if heightmap.size == 0:
+            return heightmap
+
+        positive = heightmap[heightmap > 0]
+        if positive.size < 24:
+            return heightmap
+
+        mask_floor = max(0.018, float(np.percentile(positive, 22)) * 0.55)
+        binary = heightmap > mask_floor
+        if not np.any(binary):
+            return heightmap
+
+        # Close tiny breaks and remove isolated speckles.
+        mask_img = Image.fromarray((binary.astype(np.uint8) * 255))
+        mask_img = mask_img.filter(ImageFilter.MaxFilter(size=5))
+        mask_img = mask_img.filter(ImageFilter.MinFilter(size=5))
+        mask = np.asarray(mask_img, dtype=np.uint8) > 127
+
+        mask = self._largest_connected_component(mask)
+        if not np.any(mask):
+            return heightmap
+
+        # Fill internal holes so STL export becomes a solid, printable body.
+        mask = self._fill_holes(mask)
+
+        cleaned = np.where(mask, heightmap, 0.0).astype(np.float32)
+        cleaned[(mask) & (cleaned < 0.012)] = 0.012
+
+        ys, xs = np.where(mask)
+        margin = 6
+        y0 = max(0, int(ys.min()) - margin)
+        y1 = min(cleaned.shape[0], int(ys.max()) + margin + 1)
+        x0 = max(0, int(xs.min()) - margin)
+        x1 = min(cleaned.shape[1], int(xs.max()) + margin + 1)
+        return cleaned[y0:y1, x0:x1]
+
+    def _largest_connected_component(self, mask: np.ndarray) -> np.ndarray:
+        rows, cols = mask.shape
+        visited = np.zeros_like(mask, dtype=bool)
+        best_cells: list[tuple[int, int]] = []
+
+        for y in range(rows):
+            for x in range(cols):
+                if not mask[y, x] or visited[y, x]:
+                    continue
+                queue: deque[tuple[int, int]] = deque([(y, x)])
+                visited[y, x] = True
+                component: list[tuple[int, int]] = []
+
+                while queue:
+                    cy, cx = queue.popleft()
+                    component.append((cy, cx))
+                    for ny, nx in ((cy - 1, cx), (cy + 1, cx), (cy, cx - 1), (cy, cx + 1)):
+                        if ny < 0 or ny >= rows or nx < 0 or nx >= cols:
+                            continue
+                        if visited[ny, nx] or not mask[ny, nx]:
+                            continue
+                        visited[ny, nx] = True
+                        queue.append((ny, nx))
+
+                if len(component) > len(best_cells):
+                    best_cells = component
+
+        largest = np.zeros_like(mask, dtype=bool)
+        for y, x in best_cells:
+            largest[y, x] = True
+        return largest
+
+    def _fill_holes(self, mask: np.ndarray) -> np.ndarray:
+        rows, cols = mask.shape
+        inverse = ~mask
+        outside = np.zeros_like(mask, dtype=bool)
+        queue: deque[tuple[int, int]] = deque()
+
+        def seed(y: int, x: int) -> None:
+            if inverse[y, x] and not outside[y, x]:
+                outside[y, x] = True
+                queue.append((y, x))
+
+        for x in range(cols):
+            seed(0, x)
+            seed(rows - 1, x)
+        for y in range(rows):
+            seed(y, 0)
+            seed(y, cols - 1)
+
+        while queue:
+            cy, cx = queue.popleft()
+            for ny, nx in ((cy - 1, cx), (cy + 1, cx), (cy, cx - 1), (cy, cx + 1)):
+                if ny < 0 or ny >= rows or nx < 0 or nx >= cols:
+                    continue
+                if outside[ny, nx] or not inverse[ny, nx]:
+                    continue
+                outside[ny, nx] = True
+                queue.append((ny, nx))
+
+        holes = inverse & ~outside
+        return mask | holes
+
     def _heightmap_to_mesh(self, heightmap: np.ndarray, height_scale: float, surface_floor: float) -> trimesh.Trimesh:
         rows, cols = heightmap.shape
         if rows < 2 or cols < 2:
@@ -123,16 +225,10 @@ class ReconstructionEngine:
         total_vertices = vertex_count * 2
         positions = np.zeros((total_vertices, 3), dtype=np.float32)
 
-        underside_img = Image.fromarray(np.clip(heightmap * 255.0, 0, 255).astype(np.uint8))
-        underside_img = underside_img.filter(ImageFilter.GaussianBlur(radius=1.4))
-        underside = np.asarray(underside_img, dtype=np.float32) / 255.0
-        if np.max(underside) > 0:
-            underside = underside / np.max(underside)
-
-        base_thickness = max(4.0, height_scale * 0.12)
-        underside_relief = height_scale * 0.22
+        base_thickness = max(4.5, height_scale * 0.14)
 
         faces: list[list[int]] = []
+        cell_active = np.zeros((rows - 1, cols - 1), dtype=bool)
 
         def top_index(y: int, x: int) -> int:
             return y * cols + x
@@ -150,7 +246,7 @@ class ReconstructionEngine:
 
                 bi = bottom_index(y, x)
                 positions[bi, 0] = positions[i, 0]
-                positions[bi, 1] = -base_thickness - float(underside[y, x]) * underside_relief
+                positions[bi, 1] = -base_thickness
                 positions[bi, 2] = positions[i, 2]
 
         for y in range(rows - 1):
@@ -159,7 +255,13 @@ class ReconstructionEngine:
                 h_tr = float(heightmap[y, x + 1])
                 h_bl = float(heightmap[y + 1, x])
                 h_br = float(heightmap[y + 1, x + 1])
-                if surface_floor > 0.0 and max(h_tl, h_tr, h_bl, h_br) < surface_floor:
+                if max(h_tl, h_tr, h_bl, h_br) < surface_floor:
+                    continue
+                cell_active[y, x] = True
+
+        for y in range(rows - 1):
+            for x in range(cols - 1):
+                if not cell_active[y, x]:
                     continue
 
                 tl = top_index(y, x)
@@ -175,33 +277,18 @@ class ReconstructionEngine:
                 bbr = bottom_index(y + 1, x + 1)
                 faces.append([btl, btr, bbl])
                 faces.append([btr, bbr, bbl])
-
-        # Seal boundary walls so the mesh has visible thickness from below.
-        for x in range(cols - 1):
-            # Top boundary (outward -Z)
-            a, b = top_index(0, x), top_index(0, x + 1)
-            c, d = bottom_index(0, x), bottom_index(0, x + 1)
-            faces.append([a, b, c])
-            faces.append([b, d, c])
-
-            # Bottom boundary (outward +Z)
-            a, b = top_index(rows - 1, x), top_index(rows - 1, x + 1)
-            c, d = bottom_index(rows - 1, x), bottom_index(rows - 1, x + 1)
-            faces.append([a, c, b])
-            faces.append([b, c, d])
-
-        for y in range(rows - 1):
-            # Left boundary (outward -X)
-            a, b = top_index(y, 0), top_index(y + 1, 0)
-            c, d = bottom_index(y, 0), bottom_index(y + 1, 0)
-            faces.append([a, c, b])
-            faces.append([b, c, d])
-
-            # Right boundary (outward +X)
-            a, b = top_index(y, cols - 1), top_index(y + 1, cols - 1)
-            c, d = bottom_index(y, cols - 1), bottom_index(y + 1, cols - 1)
-            faces.append([a, b, c])
-            faces.append([b, d, c])
+                if y == 0 or not cell_active[y - 1, x]:
+                    faces.append([tl, btl, tr])
+                    faces.append([tr, btl, btr])
+                if y == rows - 2 or not cell_active[y + 1, x]:
+                    faces.append([bl, br, bbl])
+                    faces.append([br, bbr, bbl])
+                if x == 0 or not cell_active[y, x - 1]:
+                    faces.append([tl, bl, btl])
+                    faces.append([bl, bbl, btl])
+                if x == cols - 2 or not cell_active[y, x + 1]:
+                    faces.append([tr, btr, br])
+                    faces.append([br, btr, bbr])
 
         if not faces:
             # Fallback if thresholding removed everything.
