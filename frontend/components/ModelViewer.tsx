@@ -12,9 +12,18 @@ import {
 } from "@react-three/drei";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { BufferGeometry, Material, Mesh, Object3D, Group } from "three";
-import { getModelFileUrl } from "@/lib/api";
+import { getModelConfidence, getModelFileUrl } from "@/lib/api";
 
 type RotationAxis = "none" | "x" | "y" | "z";
+
+type ConfidenceReport = {
+  confidence?: number;
+  overall_confidence?: number;
+  observed_ratio?: number;
+  adjusted_ratio?: number;
+  inferred_ratio?: number;
+  mode?: string;
+};
 
 function getIndexArray(geometry: BufferGeometry, vertexCount: number): Uint32Array {
   const index = geometry.index?.array;
@@ -77,7 +86,12 @@ function smoothGeometry(geometry: BufferGeometry, amount: number, iterations: nu
   geometry.computeVertexNormals();
 }
 
-function cloneMaterialWithTransparency(material: Material, transparent: boolean): Material {
+function cloneMaterialWithTransparency(
+  material: Material,
+  transparent: boolean,
+  confidenceOverlay: boolean,
+  hasVertexColors: boolean
+): Material {
   const cloned = material.clone() as Material & {
     color?: { set: (value: string) => void };
     roughness?: number;
@@ -85,13 +99,27 @@ function cloneMaterialWithTransparency(material: Material, transparent: boolean)
     flatShading?: boolean;
     emissive?: { set: (value: string) => void };
     emissiveIntensity?: number;
+    vertexColors?: boolean;
   };
-  if (cloned.color) cloned.color.set("#f4f7ff");
-  if (cloned.emissive) cloned.emissive.set("#d5deef");
-  if (typeof cloned.emissiveIntensity === "number") cloned.emissiveIntensity = 0.01;
-  if (typeof cloned.roughness === "number") cloned.roughness = 0.45;
-  if (typeof cloned.metalness === "number") cloned.metalness = 0.02;
-  if (typeof cloned.flatShading === "boolean") cloned.flatShading = false;
+
+  if (confidenceOverlay && hasVertexColors) {
+    if (cloned.color) cloned.color.set("#ffffff");
+    if (cloned.emissive) cloned.emissive.set("#101927");
+    if (typeof cloned.emissiveIntensity === "number") cloned.emissiveIntensity = 0.0;
+    if (typeof cloned.roughness === "number") cloned.roughness = 0.4;
+    if (typeof cloned.metalness === "number") cloned.metalness = 0.02;
+    if (typeof cloned.flatShading === "boolean") cloned.flatShading = false;
+    if (typeof cloned.vertexColors === "boolean") cloned.vertexColors = true;
+  } else {
+    if (cloned.color) cloned.color.set("#f4f7ff");
+    if (cloned.emissive) cloned.emissive.set("#d5deef");
+    if (typeof cloned.emissiveIntensity === "number") cloned.emissiveIntensity = 0.01;
+    if (typeof cloned.roughness === "number") cloned.roughness = 0.45;
+    if (typeof cloned.metalness === "number") cloned.metalness = 0.02;
+    if (typeof cloned.flatShading === "boolean") cloned.flatShading = false;
+    if (typeof cloned.vertexColors === "boolean") cloned.vertexColors = false;
+  }
+
   cloned.transparent = true;
   cloned.opacity = transparent ? 0.36 : 1;
   cloned.needsUpdate = true;
@@ -102,7 +130,8 @@ function prepareScene(
   scene: Object3D,
   transparent: boolean,
   smoothingEnabled: boolean,
-  smoothingLevel: number
+  smoothingLevel: number,
+  confidenceOverlay: boolean
 ): Object3D {
   const clone = scene.clone(true);
   const smoothingAmount = smoothingLevel * 0.33;
@@ -118,13 +147,24 @@ function prepareScene(
     if (smoothingEnabled && smoothingLevel > 0) {
       smoothGeometry(mesh.geometry, smoothingAmount, iterations);
     }
+    const hasVertexColors = Boolean(mesh.geometry.getAttribute("color"));
 
     if (Array.isArray(mesh.material)) {
       mesh.material = mesh.material.map((material) =>
-        cloneMaterialWithTransparency(material as Material, transparent)
+        cloneMaterialWithTransparency(
+          material as Material,
+          transparent,
+          confidenceOverlay,
+          hasVertexColors
+        )
       );
     } else {
-      mesh.material = cloneMaterialWithTransparency(mesh.material as Material, transparent);
+      mesh.material = cloneMaterialWithTransparency(
+        mesh.material as Material,
+        transparent,
+        confidenceOverlay,
+        hasVertexColors
+      );
     }
   });
 
@@ -164,6 +204,7 @@ function GltfModel({
   transparent,
   smoothingEnabled,
   smoothingLevel,
+  confidenceOverlay,
   planeAligned,
   rotationAxis,
   rotationSpeed
@@ -172,6 +213,7 @@ function GltfModel({
   transparent: boolean;
   smoothingEnabled: boolean;
   smoothingLevel: number;
+  confidenceOverlay: boolean;
   planeAligned: boolean;
   rotationAxis: RotationAxis;
   rotationSpeed: number;
@@ -179,8 +221,8 @@ function GltfModel({
   const { scene } = useGLTF(url);
 
   const processedScene = useMemo(
-    () => prepareScene(scene, transparent, smoothingEnabled, smoothingLevel),
-    [scene, transparent, smoothingEnabled, smoothingLevel]
+    () => prepareScene(scene, transparent, smoothingEnabled, smoothingLevel, confidenceOverlay),
+    [scene, transparent, smoothingEnabled, smoothingLevel, confidenceOverlay]
   );
 
   return (
@@ -207,6 +249,8 @@ export function ModelViewer() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showAxes, setShowAxes] = useState(true);
   const [lockAbovePlane, setLockAbovePlane] = useState(true);
+  const [confidenceOverlay, setConfidenceOverlay] = useState(false);
+  const [confidenceReport, setConfidenceReport] = useState<ConfidenceReport | null>(null);
   const [rotationAxis, setRotationAxis] = useState<RotationAxis>("none");
   const [rotationSpeed, setRotationSpeed] = useState(0.6);
 
@@ -259,6 +303,12 @@ export function ModelViewer() {
       const url = URL.createObjectURL(blob);
       objectUrlRef.current = url;
       setGltfUrl(url);
+      try {
+        const report = await getModelConfidence(parsedId);
+        setConfidenceReport(report as ConfidenceReport);
+      } catch {
+        setConfidenceReport(null);
+      }
       setStatus("idle");
       setMessage("Model loaded.");
     } catch (error) {
@@ -266,6 +316,13 @@ export function ModelViewer() {
       setMessage(error instanceof Error ? error.message : "Unable to load model.");
     }
   };
+
+  const observedPct = Math.round((confidenceReport?.observed_ratio ?? 0) * 100);
+  const adjustedPct = Math.round((confidenceReport?.adjusted_ratio ?? 0) * 100);
+  const inferredPct = Math.round((confidenceReport?.inferred_ratio ?? 0) * 100);
+  const overallPct = Math.round(
+    ((confidenceReport?.overall_confidence ?? confidenceReport?.confidence ?? 0) as number) * 100
+  );
 
   return (
     <div className="grid gap-7 lg:grid-cols-[2.2fr,1fr]">
@@ -290,6 +347,16 @@ export function ModelViewer() {
               onClick={() => setSmoothingEnabled((prev) => !prev)}
             >
               {smoothingEnabled ? "Smoothed On" : "Smoothed Off"}
+            </button>
+            <button
+              className={`rounded-full border px-4 py-2 text-xs font-semibold ${
+                confidenceOverlay
+                  ? "border-slate-800 bg-slate-800 text-white"
+                  : "border-slate-300 bg-white text-slate"
+              }`}
+              onClick={() => setConfidenceOverlay((prev) => !prev)}
+            >
+              {confidenceOverlay ? "Confidence On" : "Confidence Off"}
             </button>
             <button
               className="rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate"
@@ -346,6 +413,7 @@ export function ModelViewer() {
                 transparent={transparent}
                 smoothingEnabled={smoothingEnabled}
                 smoothingLevel={smoothingLevel}
+                confidenceOverlay={confidenceOverlay}
                 planeAligned={planeAligned}
                 rotationAxis={rotationAxis}
                 rotationSpeed={rotationSpeed}
@@ -443,6 +511,59 @@ export function ModelViewer() {
               />
             </div>
           </div>
+        </div>
+
+        <div className="rounded-3xl border border-slate-200/70 bg-white p-5 shadow-soft">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm font-semibold text-ink">Confidence Overlay</p>
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold text-slate">
+              {overallPct}% overall
+            </span>
+          </div>
+          <p className="mt-2 text-xs text-slate/80">
+            Green means high direct support from the X-ray. Amber is adjusted interpolation. Red is inferred fill geometry.
+          </p>
+          <div className="mt-4 space-y-3">
+            <div>
+              <div className="mb-1 flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2">
+                  <span className="inline-block h-2.5 w-2.5 rounded-full bg-[#10b981]" />
+                  <span className="text-slate">Observed</span>
+                </div>
+                <span className="font-semibold text-ink">{observedPct}%</span>
+              </div>
+              <div className="h-2 rounded-full bg-slate-100">
+                <div className="h-2 rounded-full bg-[#10b981]" style={{ width: `${observedPct}%` }} />
+              </div>
+            </div>
+            <div>
+              <div className="mb-1 flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2">
+                  <span className="inline-block h-2.5 w-2.5 rounded-full bg-[#f59e0b]" />
+                  <span className="text-slate">Adjusted</span>
+                </div>
+                <span className="font-semibold text-ink">{adjustedPct}%</span>
+              </div>
+              <div className="h-2 rounded-full bg-slate-100">
+                <div className="h-2 rounded-full bg-[#f59e0b]" style={{ width: `${adjustedPct}%` }} />
+              </div>
+            </div>
+            <div>
+              <div className="mb-1 flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2">
+                  <span className="inline-block h-2.5 w-2.5 rounded-full bg-[#ef4444]" />
+                  <span className="text-slate">Inferred Fill</span>
+                </div>
+                <span className="font-semibold text-ink">{inferredPct}%</span>
+              </div>
+              <div className="h-2 rounded-full bg-slate-100">
+                <div className="h-2 rounded-full bg-[#ef4444]" style={{ width: `${inferredPct}%` }} />
+              </div>
+            </div>
+          </div>
+          <p className="mt-3 text-[11px] text-slate/70">
+            Confidence mode: {confidenceReport?.mode ?? "n/a"}
+          </p>
         </div>
 
         <div className="rounded-3xl border border-slate-200/70 bg-white p-5 shadow-soft">

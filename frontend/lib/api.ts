@@ -47,6 +47,14 @@ export async function getModel(modelId: number) {
   return response.json();
 }
 
+export async function getModelConfidence(modelId: number) {
+  const response = await fetch(`${API_URL}/reconstruct/model/${modelId}/confidence`);
+  if (!response.ok) {
+    throw new Error("Confidence report unavailable");
+  }
+  return response.json();
+}
+
 export async function exportModel(modelId: number, format: string, token?: string) {
   const response = await fetch(
     `${API_URL}/reconstruct/model/${modelId}/export?format=${format}`,

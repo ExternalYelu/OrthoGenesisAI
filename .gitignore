@@ -31,7 +31,8 @@ data/models/
 
 data/exports/
 
+data/confidence/
+
 backend/data/*.db
 
 frontend/*.tsbuildinfo
-

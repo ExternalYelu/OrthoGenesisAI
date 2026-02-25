@@ -14,7 +14,7 @@ from app.reconstruction.engine import XRayInput
 from app.schemas.reconstruction import ReconstructionCreate, ReconstructionStatus
 from app.schemas.export import ExportResponse
 from app.schemas.share import ShareLinkResponse
-from app.storage.local import read_file, get_path, save_export
+from app.storage.local import read_confidence_report, read_file, get_path, save_export
 from app.services.audit import log_event
 from app.services.mesh import convert_mesh
 
@@ -83,7 +83,13 @@ def get_confidence(model_id: int, db: Session = Depends(get_db)):
     reconstruction = db.query(models.Reconstruction).filter(models.Reconstruction.id == model_id).first()
     if not reconstruction:
         raise HTTPException(status_code=404, detail="Model not found")
-    return {"confidence": reconstruction.confidence}
+
+    payload = {"confidence": reconstruction.confidence}
+    if reconstruction.mesh_key:
+        report = read_confidence_report(reconstruction.mesh_key)
+        if report:
+            payload.update(report)
+    return payload
 
 @router.get("/model/{model_id}/file")
 def get_model_file(model_id: int, db: Session = Depends(get_db)):

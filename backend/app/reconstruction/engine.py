@@ -3,14 +3,14 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass
 from io import BytesIO
-from typing import Iterable
+from typing import Any, Iterable
 
 import numpy as np
 import torch
 import trimesh
 from PIL import Image, ImageFilter, ImageOps
 
-from app.storage.local import save_model
+from app.storage.local import save_confidence_report, save_model
 
 
 @dataclass
@@ -25,6 +25,7 @@ class ReconstructionResult:
     confidence: float
     mesh_key: str
     notes: str | None = None
+    confidence_report: dict[str, Any] | None = None
 
 
 class ReconstructionEngine:
@@ -40,11 +41,12 @@ class ReconstructionEngine:
         _dummy = torch.zeros((64, 64, 64))
 
         if len(input_list) == 1:
-            mesh_key = self._mesh_from_xray(input_list[0].data)
+            mesh_key, confidence_report = self._mesh_from_xray(input_list[0].data)
             return ReconstructionResult(
-                confidence=0.62,
+                confidence=float(confidence_report.get("overall_confidence", 0.62)),
                 mesh_key=mesh_key,
                 notes="Single-image heightmap mesh (test mode)",
+                confidence_report=confidence_report,
             )
 
         obj = """# OrthoGenesisAI placeholder mesh\n"""
@@ -68,17 +70,18 @@ class ReconstructionEngine:
         mesh_key = save_model(glb, ext="glb")
         return ReconstructionResult(confidence=0.86, mesh_key=mesh_key, notes="Stub mesh")
 
-    def _mesh_from_xray(self, data: bytes) -> str:
+    def _mesh_from_xray(self, data: bytes) -> tuple[str, dict[str, Any]]:
         heightmap = self._extract_bone_heightmap(data, target_size=300, blur_sigma=0.95)
         heightmap = self._clean_heightmap(heightmap)
-        mesh = self._heightmap_to_mesh(heightmap, height_scale=46.0, surface_floor=0.014)
+        mesh, confidence_report = self._heightmap_to_mesh(heightmap, height_scale=46.0, surface_floor=0.014)
         glb = mesh.export(file_type="glb")
         if isinstance(glb, str):
             glb_bytes = glb.encode("utf-8")
         else:
             glb_bytes = glb
         mesh_key = save_model(glb_bytes, ext="glb")
-        return mesh_key
+        save_confidence_report(mesh_key, confidence_report)
+        return mesh_key, confidence_report
 
     def _extract_bone_heightmap(self, data: bytes, target_size: int, blur_sigma: float) -> np.ndarray:
         image = Image.open(BytesIO(data)).convert("L")
@@ -216,7 +219,9 @@ class ReconstructionEngine:
         holes = inverse & ~outside
         return mask | holes
 
-    def _heightmap_to_mesh(self, heightmap: np.ndarray, height_scale: float, surface_floor: float) -> trimesh.Trimesh:
+    def _heightmap_to_mesh(
+        self, heightmap: np.ndarray, height_scale: float, surface_floor: float
+    ) -> tuple[trimesh.Trimesh, dict[str, Any]]:
         rows, cols = heightmap.shape
         if rows < 2 or cols < 2:
             raise ValueError("Heightmap is too small to build a mesh")
@@ -224,11 +229,13 @@ class ReconstructionEngine:
         vertex_count = rows * cols
         total_vertices = vertex_count * 2
         positions = np.zeros((total_vertices, 3), dtype=np.float32)
+        vertex_confidence = np.zeros((total_vertices,), dtype=np.float32)
 
         base_thickness = max(4.5, height_scale * 0.14)
 
         faces: list[list[int]] = []
         cell_active = np.zeros((rows - 1, cols - 1), dtype=bool)
+        support = heightmap > surface_floor
 
         def top_index(y: int, x: int) -> int:
             return y * cols + x
@@ -243,19 +250,17 @@ class ReconstructionEngine:
                 positions[i, 0] = (x / cols - 0.5) * cols
                 positions[i, 1] = intensity * height_scale
                 positions[i, 2] = (y / rows - 0.5) * rows
+                vertex_confidence[i] = self._top_vertex_confidence(heightmap, y, x, surface_floor)
 
                 bi = bottom_index(y, x)
                 positions[bi, 0] = positions[i, 0]
                 positions[bi, 1] = -base_thickness
                 positions[bi, 2] = positions[i, 2]
+                vertex_confidence[bi] = 0.08
 
         for y in range(rows - 1):
             for x in range(cols - 1):
-                h_tl = float(heightmap[y, x])
-                h_tr = float(heightmap[y, x + 1])
-                h_bl = float(heightmap[y + 1, x])
-                h_br = float(heightmap[y + 1, x + 1])
-                if max(h_tl, h_tr, h_bl, h_br) < surface_floor:
+                if not (support[y, x] or support[y, x + 1] or support[y + 1, x] or support[y + 1, x + 1]):
                     continue
                 cell_active[y, x] = True
 
@@ -295,17 +300,92 @@ class ReconstructionEngine:
             faces = [[0, 1, cols], [1, cols + 1, cols], [vertex_count, vertex_count + 1, vertex_count + cols]]
 
         faces_array = np.array(faces, dtype=np.int64)
+        used_vertices = np.unique(faces_array.reshape(-1))
+        used_confidence = vertex_confidence[used_vertices]
+
+        colors = self._confidence_to_colors(vertex_confidence)
         vertex_normals = self._compute_vertex_normals(positions, faces_array)
         mesh = trimesh.Trimesh(
             vertices=positions, faces=faces_array, vertex_normals=vertex_normals, process=False
         )
+        mesh.visual = trimesh.visual.ColorVisuals(mesh=mesh, vertex_colors=colors)
         # `fix_normals()` may require scipy via trimesh graph utilities.
         # In test mode we keep reconstruction robust and skip hard-fail if scipy is unavailable.
         try:
             mesh.fix_normals()
         except Exception:
             pass
-        return mesh
+        confidence_report = self._build_confidence_report(used_confidence, surface_floor)
+        return mesh, confidence_report
+
+    def _top_vertex_confidence(
+        self, heightmap: np.ndarray, y: int, x: int, surface_floor: float
+    ) -> float:
+        h = float(heightmap[y, x])
+        if h <= 0.0:
+            return 0.0
+
+        base = np.clip((h - surface_floor) / max(1e-6, 1.0 - surface_floor), 0.0, 1.0)
+
+        y0 = max(0, y - 1)
+        y1 = min(heightmap.shape[0], y + 2)
+        x0 = max(0, x - 1)
+        x1 = min(heightmap.shape[1], x + 2)
+        patch = heightmap[y0:y1, x0:x1]
+        local_support = float(np.mean(patch > surface_floor))
+        edge_factor = 0.68 + 0.32 * local_support
+        return float(np.clip((0.34 + 0.66 * base) * edge_factor, 0.0, 1.0))
+
+    def _confidence_to_colors(self, confidence: np.ndarray) -> np.ndarray:
+        # Low confidence: red, medium: amber, high: teal-green.
+        c = np.clip(confidence.astype(np.float32), 0.0, 1.0)
+        low = np.array([239.0, 68.0, 68.0], dtype=np.float32)
+        mid = np.array([245.0, 158.0, 11.0], dtype=np.float32)
+        high = np.array([16.0, 185.0, 129.0], dtype=np.float32)
+
+        t_low = np.clip(c / 0.5, 0.0, 1.0)[:, None]
+        t_high = np.clip((c - 0.5) / 0.5, 0.0, 1.0)[:, None]
+        rgb_low = low[None, :] * (1.0 - t_low) + mid[None, :] * t_low
+        rgb_high = mid[None, :] * (1.0 - t_high) + high[None, :] * t_high
+        rgb = np.where((c[:, None] <= 0.5), rgb_low, rgb_high)
+
+        rgba = np.zeros((confidence.shape[0], 4), dtype=np.uint8)
+        rgba[:, :3] = np.clip(np.round(rgb), 0, 255).astype(np.uint8)
+        rgba[:, 3] = 255
+        return rgba
+
+    def _build_confidence_report(self, used_confidence: np.ndarray, surface_floor: float) -> dict[str, Any]:
+        if used_confidence.size == 0:
+            return {
+                "overall_confidence": 0.0,
+                "observed_ratio": 0.0,
+                "adjusted_ratio": 0.0,
+                "inferred_ratio": 1.0,
+                "observed_threshold": 0.72,
+                "adjusted_threshold": 0.32,
+                "surface_floor": surface_floor,
+                "mode": "single-view-heightmap",
+            }
+
+        observed_threshold = 0.72
+        adjusted_threshold = 0.32
+        observed_ratio = float(np.mean(used_confidence >= observed_threshold))
+        adjusted_ratio = float(
+            np.mean((used_confidence >= adjusted_threshold) & (used_confidence < observed_threshold))
+        )
+        inferred_ratio = float(np.mean(used_confidence < adjusted_threshold))
+        overall_confidence = float(np.mean(used_confidence))
+
+        return {
+            "overall_confidence": round(overall_confidence, 4),
+            "observed_ratio": round(observed_ratio, 4),
+            "adjusted_ratio": round(adjusted_ratio, 4),
+            "inferred_ratio": round(inferred_ratio, 4),
+            "observed_threshold": observed_threshold,
+            "adjusted_threshold": adjusted_threshold,
+            "surface_floor": round(float(surface_floor), 4),
+            "mode": "single-view-heightmap",
+        }
 
     def _compute_vertex_normals(self, vertices: np.ndarray, faces: np.ndarray) -> np.ndarray:
         normals = np.zeros_like(vertices, dtype=np.float32)

@@ -1,12 +1,16 @@
 import Link from "next/link";
 import { Button } from "./Button";
+import { BrandMark } from "./BrandMark";
 
 export function Header() {
   return (
     <header className="sticky top-0 z-40 bg-white/70 backdrop-blur-lg">
       <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
         <Link href="/" className="text-lg font-semibold tracking-tight text-ink">
-          OrthoGenesisAI
+          <span className="inline-flex items-center gap-2">
+            <BrandMark className="h-7 w-7" />
+            <span>OrthoGenesisAI</span>
+          </span>
         </Link>
         <nav className="hidden items-center gap-6 text-sm text-slate md:flex">
           <Link className="link-underline" href="/upload">
