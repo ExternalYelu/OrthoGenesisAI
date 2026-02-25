@@ -24,3 +24,14 @@ __pycache__
 
 # Docker
 **/.dockerignore
+
+data/uploads/
+
+data/models/
+
+data/exports/
+
+backend/data/*.db
+
+frontend/*.tsbuildinfo
+
