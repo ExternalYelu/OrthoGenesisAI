@@ -39,6 +39,14 @@ export async function reconstruct(caseId: number, token?: string) {
   return response.json();
 }
 
+export async function getJob(jobId: string) {
+  const response = await fetch(`${API_URL}/reconstruct/jobs/${jobId}`);
+  if (!response.ok) {
+    throw new Error("Job not found");
+  }
+  return response.json();
+}
+
 export async function getModel(modelId: number) {
   const response = await fetch(`${API_URL}/reconstruct/model/${modelId}`);
   if (!response.ok) {
@@ -55,9 +63,9 @@ export async function getModelConfidence(modelId: number) {
   return response.json();
 }
 
-export async function exportModel(modelId: number, format: string, token?: string) {
+export async function exportModel(modelId: number, format: string, token?: string, asyncMode = true) {
   const response = await fetch(
-    `${API_URL}/reconstruct/model/${modelId}/export?format=${format}`,
+    `${API_URL}/reconstruct/model/${modelId}/export?format=${format}&async_mode=${asyncMode ? "true" : "false"}`,
     {
       headers: token ? { Authorization: `Bearer ${token}` } : undefined
     }

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Button } from "./Button";
-import { reconstruct, uploadXrays } from "@/lib/api";
+import { getJob, getModel, reconstruct, uploadXrays } from "@/lib/api";
 
 export function UploadDropzone() {
   const [files, setFiles] = useState<File[]>([]);
@@ -33,9 +33,31 @@ export function UploadDropzone() {
       setStatus("uploading");
       setMessage("Uploading...");
       const upload = await uploadXrays(form);
-      setMessage("Reconstructing...");
+      setMessage("Queueing reconstruction...");
       const reconstruction = await reconstruct(upload.case_id);
       setModelId(reconstruction.id);
+      const jobMatch = typeof reconstruction.notes === "string" ? reconstruction.notes.match(/job:([a-f0-9]+)/i) : null;
+      const jobId = jobMatch?.[1];
+      if (!jobId) {
+        throw new Error("Failed to track reconstruction job.");
+      }
+
+      const timeoutAt = Date.now() + 120000;
+      while (Date.now() < timeoutAt) {
+        const job = await getJob(jobId);
+        if (job.status === "dead" || job.status === "failed") {
+          throw new Error(job.error || "Reconstruction job failed.");
+        }
+        if (job.status === "succeeded") break;
+        setMessage(`Reconstructing... attempt ${job.attempts}/${job.max_attempts}`);
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+      }
+
+      const updated = await getModel(reconstruction.id);
+      if (updated.status !== "complete") {
+        throw new Error("Reconstruction is still running, please refresh in a moment.");
+      }
+
       setStatus("done");
       setMessage("Reconstruction complete. Open the viewer to inspect the model.");
     } catch (error) {
@@ -68,12 +90,12 @@ export function UploadDropzone() {
       <div className="rounded-3xl border border-dashed border-slate/30 bg-white/70 p-8 text-center">
         <p className="text-sm font-semibold text-ink">Drag and drop X-rays</p>
         <p className="text-xs text-slate">
-          PNG or JPEG. Single image test mode.
+          PNG, JPEG, or DICOM (.dcm). Single image test mode.
         </p>
         <input
           className="mt-4 w-full text-sm"
           type="file"
-          accept=".png,.jpg,.jpeg,image/png,image/jpeg"
+          accept=".png,.jpg,.jpeg,.dcm,image/png,image/jpeg,application/dicom"
           onChange={(event) => handleFiles(event.target.files)}
         />
       </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { exportModel } from "@/lib/api";
+import { exportModel, getJob } from "@/lib/api";
 import { Button } from "./Button";
 
 const formats = [
@@ -17,11 +17,36 @@ export function ExportPanel() {
   const handleExport = async (format: string) => {
     try {
       setStatus(`Exporting ${format}...`);
-      const response = await exportModel(Number(modelId), format.toLowerCase());
-      window.open(response.download_url, "_blank");
-      setStatus("Export ready. Download opened.");
+      const response = await exportModel(Number(modelId), format.toLowerCase(), undefined, true);
+      const jobMatch = typeof response.download_url === "string" ? response.download_url.match(/\/jobs\/([a-f0-9]+)/i) : null;
+      if (!jobMatch) {
+        window.open(response.download_url, "_blank");
+        setStatus("Export ready. Download opened.");
+        return;
+      }
+
+      const jobId = jobMatch[1];
+      const timeoutAt = Date.now() + 120000;
+      while (Date.now() < timeoutAt) {
+        const job = await getJob(jobId);
+        if (job.status === "dead" || job.status === "failed") {
+          throw new Error(job.error || "Export job failed.");
+        }
+        if (job.status === "succeeded") {
+          const url = job.result_json?.download_url;
+          if (!url) throw new Error("Export completed but download URL was missing.");
+          const resolved = url.startsWith("/") ? `${process.env.NEXT_PUBLIC_API_URL || "/api"}${url}` : url;
+          window.open(resolved, "_blank");
+          setStatus("Export ready. Download opened.");
+          return;
+        }
+        setStatus(`Exporting ${format}... (${job.attempts}/${job.max_attempts})`);
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+      }
+
+      throw new Error("Export timed out. Please retry.");
     } catch (error) {
-      setStatus("Export failed. Check token and model id.");
+      setStatus(error instanceof Error ? error.message : "Export failed. Check model id.");
     }
   };
 

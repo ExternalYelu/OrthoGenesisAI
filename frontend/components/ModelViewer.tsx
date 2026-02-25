@@ -12,6 +12,7 @@ import {
 } from "@react-three/drei";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { BufferGeometry, Material, Mesh, Object3D, Group } from "three";
+import * as THREE from "three";
 import { getModelConfidence, getModelFileUrl } from "@/lib/api";
 
 type RotationAxis = "none" | "x" | "y" | "z";
@@ -92,38 +93,34 @@ function cloneMaterialWithTransparency(
   confidenceOverlay: boolean,
   hasVertexColors: boolean
 ): Material {
-  const cloned = material.clone() as Material & {
-    color?: { set: (value: string) => void };
-    roughness?: number;
-    metalness?: number;
-    flatShading?: boolean;
-    emissive?: { set: (value: string) => void };
-    emissiveIntensity?: number;
-    vertexColors?: boolean;
-  };
-
-  if (confidenceOverlay && hasVertexColors) {
-    if (cloned.color) cloned.color.set("#ffffff");
-    if (cloned.emissive) cloned.emissive.set("#101927");
-    if (typeof cloned.emissiveIntensity === "number") cloned.emissiveIntensity = 0.0;
-    if (typeof cloned.roughness === "number") cloned.roughness = 0.4;
-    if (typeof cloned.metalness === "number") cloned.metalness = 0.02;
-    if (typeof cloned.flatShading === "boolean") cloned.flatShading = false;
-    if (typeof cloned.vertexColors === "boolean") cloned.vertexColors = true;
-  } else {
-    if (cloned.color) cloned.color.set("#f4f7ff");
-    if (cloned.emissive) cloned.emissive.set("#d5deef");
-    if (typeof cloned.emissiveIntensity === "number") cloned.emissiveIntensity = 0.01;
-    if (typeof cloned.roughness === "number") cloned.roughness = 0.45;
-    if (typeof cloned.metalness === "number") cloned.metalness = 0.02;
-    if (typeof cloned.flatShading === "boolean") cloned.flatShading = false;
-    if (typeof cloned.vertexColors === "boolean") cloned.vertexColors = false;
-  }
-
-  cloned.transparent = true;
-  cloned.opacity = transparent ? 0.36 : 1;
-  cloned.needsUpdate = true;
-  return cloned;
+  void material;
+  const useVertexColors = confidenceOverlay && hasVertexColors;
+  const built = useVertexColors
+    ? new THREE.MeshStandardMaterial({
+        color: "#ffffff",
+        emissive: "#000000",
+        emissiveIntensity: 0.0,
+        roughness: 0.4,
+        metalness: 0.02,
+        flatShading: false,
+        vertexColors: true,
+        transparent: true,
+        opacity: transparent ? 0.36 : 1.0,
+        side: THREE.DoubleSide
+      })
+    : new THREE.MeshPhongMaterial({
+        color: "#f2f6ff",
+        emissive: "#d3dced",
+        emissiveIntensity: 0.08,
+        shininess: 30,
+        specular: "#ffffff",
+        flatShading: false,
+        transparent: true,
+        opacity: transparent ? 0.36 : 1.0,
+        side: THREE.DoubleSide
+      });
+  built.needsUpdate = true;
+  return built;
 }
 
 function prepareScene(
@@ -147,6 +144,7 @@ function prepareScene(
     if (smoothingEnabled && smoothingLevel > 0) {
       smoothGeometry(mesh.geometry, smoothingAmount, iterations);
     }
+    mesh.geometry.computeVertexNormals();
     const hasVertexColors = Boolean(mesh.geometry.getAttribute("color"));
 
     if (Array.isArray(mesh.material)) {
