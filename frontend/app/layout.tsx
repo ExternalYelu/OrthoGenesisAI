@@ -27,7 +27,13 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${spaceGrotesk.variable} ${ibmPlexSans.variable}`}>
-        {children}
+        <a
+          href="#page-content"
+          className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-white focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-[#0b1220]"
+        >
+          Skip to content
+        </a>
+        <div id="page-content">{children}</div>
       </body>
     </html>
   );

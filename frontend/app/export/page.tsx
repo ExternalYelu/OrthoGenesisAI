@@ -11,7 +11,7 @@ export default function ExportPage() {
       <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-10 px-6 py-16">
         <SectionHeader
           title="Export & Share"
-          subtitle="Download surgical-ready files or generate secure links."
+          subtitle="Format presets, units, tolerances, and ZIP bundle manifests."
         />
         <SurfaceCard>
           <ExportPanel />
@@ -27,6 +27,11 @@ export default function ExportPage() {
             </button>
             <span className="text-xs text-slate">Valid for 72 hours</span>
           </div>
+        </SurfaceCard>
+        <SurfaceCard>
+          <p className="text-xs text-red-700">
+            Not diagnostic: exported files are for planning, printing, and communication workflows.
+          </p>
         </SurfaceCard>
       </main>
       <Footer />

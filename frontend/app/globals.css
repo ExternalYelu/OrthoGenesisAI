@@ -12,7 +12,7 @@
 
 body {
   @apply bg-frost text-ink font-body;
-  background-color: #f3f5f8;
+  background-color: #eff3f8;
   min-height: 100vh;
   text-rendering: geometricPrecision;
   -webkit-font-smoothing: antialiased;
@@ -46,4 +46,9 @@ main {
 
 .link-underline:hover::after {
   transform: scaleX(1);
+}
+
+:focus-visible {
+  outline: 2px solid #1f6feb;
+  outline-offset: 2px;
 }
