@@ -43,48 +43,48 @@ class ReconstructionEngine:
         # Placeholder tensor to validate CUDA plumbing and torch availability.
         _dummy = torch.zeros((64, 64, 64))
 
-        if len(input_list) == 1:
-            mesh_key, confidence_report = self._mesh_from_xray(input_list[0].data)
-            return ReconstructionResult(
-                confidence=float(confidence_report.get("overall_confidence", 0.62)),
-                mesh_key=mesh_key,
-                notes="Single-image heightmap mesh (test mode)",
-                confidence_report=confidence_report,
-                pipeline_version="heightmap-v1",
-                confidence_version="confidence-v1",
-            )
-
-        obj = """# OrthoGenesisAI placeholder mesh\n"""
-        obj += "v 0 0 0\n"
-        obj += "v 1 0 0\n"
-        obj += "v 1 1 0\n"
-        obj += "v 0 1 0\n"
-        obj += "v 0 0 1\n"
-        obj += "v 1 0 1\n"
-        obj += "v 1 1 1\n"
-        obj += "v 0 1 1\n"
-        obj += "f 1 2 3 4\n"
-        obj += "f 5 6 7 8\n"
-        obj += "f 1 2 6 5\n"
-        obj += "f 2 3 7 6\n"
-        obj += "f 3 4 8 7\n"
-        obj += "f 4 1 5 8\n"
-
-        mesh = trimesh.load(BytesIO(obj.encode("utf-8")), file_type="obj")
-        glb = mesh.export(file_type="glb")
-        mesh_key = save_model(glb, ext="glb")
+        mesh_key, confidence_report = self._mesh_from_inputs(input_list)
         return ReconstructionResult(
-            confidence=0.86,
+            confidence=float(confidence_report.get("overall_confidence", 0.62)),
             mesh_key=mesh_key,
-            notes="Stub mesh",
-            pipeline_version="stub-v1",
+            notes="Heightmap mesh from available X-ray views",
+            confidence_report=confidence_report,
+            pipeline_version="heightmap-v1",
             confidence_version="confidence-v1",
         )
 
-    def _mesh_from_xray(self, data: bytes) -> tuple[str, dict[str, Any]]:
-        heightmap = self._extract_bone_heightmap(data, target_size=384, blur_sigma=1.1)
+    def _mesh_from_inputs(self, inputs: list[XRayInput]) -> tuple[str, dict[str, Any]]:
+        maps: list[np.ndarray] = []
+        for idx, item in enumerate(inputs):
+            sigma = 1.1 + min(0.5, idx * 0.06)
+            maps.append(self._extract_bone_heightmap(item.data, target_size=384, blur_sigma=sigma))
+
+        if not maps:
+            raise ValueError("No input images were provided")
+
+        base = maps[0]
+        resized: list[np.ndarray] = [base]
+        for hm in maps[1:]:
+            if hm.shape == base.shape:
+                resized.append(hm)
+                continue
+            image = Image.fromarray(np.clip(hm * 255.0, 0, 255).astype(np.uint8))
+            image = image.resize((base.shape[1], base.shape[0]), Image.Resampling.BILINEAR)
+            resized.append(np.asarray(image, dtype=np.float32) / 255.0)
+
+        if len(resized) == 1:
+            heightmap = resized[0]
+            mode = "single-view-heightmap"
+        else:
+            stack = np.stack(resized, axis=0)
+            # Weighted blend to preserve strong contours while reducing single-view artifacts.
+            heightmap = np.maximum(np.mean(stack, axis=0), np.max(stack, axis=0) * 0.72)
+            mode = "multi-view-heightmap"
+
         heightmap = self._clean_heightmap(heightmap)
         mesh, confidence_report = self._heightmap_to_mesh(heightmap, height_scale=46.0, surface_floor=0.008)
+        confidence_report["mode"] = mode
+        confidence_report["input_views"] = len(inputs)
         glb = mesh.export(file_type="glb")
         if isinstance(glb, str):
             glb_bytes = glb.encode("utf-8")
@@ -99,7 +99,6 @@ class ReconstructionEngine:
         image.thumbnail((target_size, target_size), Image.Resampling.LANCZOS)
         image = image.filter(ImageFilter.GaussianBlur(radius=blur_sigma))
         image = ImageOps.autocontrast(image, cutoff=0)
-        image = ImageOps.equalize(image)
 
         pixels = np.asarray(image, dtype=np.uint8)
         pixels_f32 = pixels.astype(np.float32)
@@ -113,7 +112,7 @@ class ReconstructionEngine:
         # Blend adaptive threshold with full intensity map to preserve internal bone contours.
         norm = np.clip((pixels_f32 - p_low) / max(1.0, p_high - p_low), 0.0, 1.0)
         mask = np.clip((pixels_f32 - threshold) / max(1.0, 255.0 - threshold), 0.0, 1.0)
-        bone = (0.58 * mask + 0.42 * np.clip(norm - 0.18, 0.0, 1.0)).astype(np.float32)
+        bone = (0.74 * mask + 0.26 * np.clip(norm - 0.24, 0.0, 1.0)).astype(np.float32)
 
         if bone.size == 0:
             return np.zeros((2, 2), dtype=np.float32)
@@ -125,7 +124,7 @@ class ReconstructionEngine:
         if np.max(bone) > 0:
             bone = bone / np.max(bone)
         bone = np.power(bone, 0.93)
-        bone[bone < 0.004] = 0.0
+        bone[bone < 0.012] = 0.0
         return bone
 
     def _clean_heightmap(self, heightmap: np.ndarray) -> np.ndarray:
@@ -136,8 +135,14 @@ class ReconstructionEngine:
         if positive.size < 24:
             return heightmap
 
-        mask_floor = max(0.008, float(np.percentile(positive, 8)) * 0.35)
-        binary = heightmap > mask_floor
+        mask_floor = max(0.014, float(np.percentile(positive, 18)) * 0.6)
+        gy, gx = np.gradient(heightmap)
+        grad = np.sqrt(gx * gx + gy * gy)
+        grad_threshold = float(np.percentile(grad, 65))
+        intensity_threshold = float(np.percentile(positive, 35))
+        binary = (heightmap > mask_floor) & (
+            (heightmap > intensity_threshold) | (grad > grad_threshold)
+        )
         if not np.any(binary):
             return heightmap
 
@@ -189,6 +194,7 @@ class ReconstructionEngine:
         for y, x in best_cells:
             largest[y, x] = True
         return largest
+
 
     def _fill_holes(self, mask: np.ndarray) -> np.ndarray:
         rows, cols = mask.shape
@@ -339,11 +345,11 @@ class ReconstructionEngine:
         return float(np.clip((0.34 + 0.66 * base) * edge_factor, 0.0, 1.0))
 
     def _confidence_to_colors(self, confidence: np.ndarray) -> np.ndarray:
-        # Low confidence: red, medium: amber, high: teal-green.
+        # Colorblind-safe palette: blue (observed), amber (adjusted), magenta (inferred).
         c = np.clip(confidence.astype(np.float32), 0.0, 1.0)
-        low = np.array([239.0, 68.0, 68.0], dtype=np.float32)
+        low = np.array([192.0, 38.0, 211.0], dtype=np.float32)
         mid = np.array([245.0, 158.0, 11.0], dtype=np.float32)
-        high = np.array([16.0, 185.0, 129.0], dtype=np.float32)
+        high = np.array([47.0, 122.0, 229.0], dtype=np.float32)
 
         t_low = np.clip(c / 0.5, 0.0, 1.0)[:, None]
         t_high = np.clip((c - 0.5) / 0.5, 0.0, 1.0)[:, None]

@@ -41,6 +41,9 @@ def enqueue_job(
         result_json=None,
         attempts=0,
         max_attempts=max_attempts,
+        stage="queued",
+        progress=0,
+        eta_seconds=None,
         dead_letter=False,
         available_at=_utcnow(),
         updated_at=_utcnow(),
@@ -97,6 +100,9 @@ class AsyncJobWorker:
 
             job.status = "running"
             job.attempts = int(job.attempts or 0) + 1
+            job.stage = "starting"
+            job.progress = 2
+            job.eta_seconds = 45
             job.updated_at = now
             db.commit()
             job_id = job.id
@@ -115,15 +121,18 @@ class AsyncJobWorker:
             payload = job.payload_json or {}
 
             if job.job_type == "reconstruct":
-                result = self._process_reconstruct(db, payload)
+                result = self._process_reconstruct(db, job, payload)
             elif job.job_type == "export":
-                result = self._process_export(db, payload)
+                result = self._process_export(db, job, payload)
             else:
                 raise ValueError(f"Unsupported job type: {job.job_type}")
 
             job.status = "succeeded"
             job.result_json = result
             job.error = None
+            job.stage = "completed"
+            job.progress = 100
+            job.eta_seconds = 0
             job.updated_at = _utcnow()
             job.finished_at = _utcnow()
             db.commit()
@@ -141,16 +150,49 @@ class AsyncJobWorker:
                 job.status = "queued"
                 job.available_at = _utcnow() + timedelta(seconds=backoff)
                 job.error = error[:2000]
+                job.stage = "retry_pending"
+                job.progress = min(95, int(job.progress or 0))
+                job.eta_seconds = backoff
                 job.updated_at = _utcnow()
             else:
                 job.status = "dead"
                 job.dead_letter = True
                 job.error = error[:2000]
+                job.stage = "failed"
+                job.progress = min(100, int(job.progress or 0))
+                job.eta_seconds = None
                 job.updated_at = _utcnow()
                 job.finished_at = _utcnow()
             db.commit()
 
-    def _process_reconstruct(self, db: Session, payload: dict[str, Any]) -> dict[str, Any]:
+    def _update_job_progress(
+        self,
+        db: Session,
+        job: models.AsyncJob,
+        *,
+        stage: str,
+        progress: int,
+        eta_seconds: int | None = None,
+        detail: dict[str, Any] | None = None,
+    ) -> None:
+        job.stage = stage
+        job.progress = int(max(0, min(100, progress)))
+        job.eta_seconds = eta_seconds
+        payload = dict(job.result_json or {})
+        if detail:
+            payload.update(detail)
+        payload["stage"] = stage
+        payload["progress"] = job.progress
+        payload["eta_seconds"] = eta_seconds
+        payload["updated_at"] = _utcnow().isoformat()
+        job.result_json = payload
+        job.updated_at = _utcnow()
+        db.commit()
+        db.refresh(job)
+
+    def _process_reconstruct(
+        self, db: Session, job: models.AsyncJob, payload: dict[str, Any]
+    ) -> dict[str, Any]:
         case_id = int(payload["case_id"])
         reconstruction_id = int(payload["reconstruction_id"])
 
@@ -163,6 +205,16 @@ class AsyncJobWorker:
         reconstruction.updated_at = _utcnow()
         db.commit()
 
+        if job:
+            self._update_job_progress(
+                db,
+                job,
+                stage="preprocessing",
+                progress=12,
+                eta_seconds=30,
+                detail={"message": "Normalizing image intensity and geometry"},
+            )
+
         xrays = (
             db.query(models.XRayImage)
             .filter(models.XRayImage.case_id == case_id, models.XRayImage.deleted_at.is_(None))
@@ -170,6 +222,16 @@ class AsyncJobWorker:
         )
         if not xrays:
             raise ValueError("No X-rays available for reconstruction")
+
+        if job:
+            self._update_job_progress(
+                db,
+                job,
+                stage="alignment",
+                progress=34,
+                eta_seconds=22,
+                detail={"message": "Aligning available views"},
+            )
 
         input_set_hash = _hash_payload(
             {"case_id": case_id, "xray_ids": [x.id for x in xrays], "file_keys": [x.file_key for x in xrays]}
@@ -187,11 +249,30 @@ class AsyncJobWorker:
             XRayInput(view=xray.view, content_type="image/png", data=read_file(xray.file_key))
             for xray in xrays
         ]
+        if job:
+            self._update_job_progress(
+                db,
+                job,
+                stage="inference",
+                progress=61,
+                eta_seconds=14,
+                detail={"message": f"Running {model_name} model inference"},
+            )
         result, statuses = pipeline.run(inputs)
         calibrator = ConfidenceCalibrator(version="calib-v1")
         calibrated_conf = calibrator.calibrate(result.confidence)
         uncertainty = calibrator.build_uncertainty_map(result.confidence_report)
         uncertainty_map_key = save_uncertainty_map(result.mesh_key, uncertainty)
+
+        if job:
+            self._update_job_progress(
+                db,
+                job,
+                stage="refinement",
+                progress=86,
+                eta_seconds=6,
+                detail={"message": "Refining mesh quality and confidence map"},
+            )
 
         reconstruction.status = "complete"
         reconstruction.confidence = calibrated_conf
@@ -219,6 +300,16 @@ class AsyncJobWorker:
         db.add(model_version)
         db.commit()
 
+        if job:
+            self._update_job_progress(
+                db,
+                job,
+                stage="complete",
+                progress=100,
+                eta_seconds=0,
+                detail={"message": "Reconstruction complete", "reconstruction_id": reconstruction.id},
+            )
+
         return {
             "reconstruction_id": reconstruction.id,
             "status": reconstruction.status,
@@ -227,7 +318,7 @@ class AsyncJobWorker:
             "steps": [s.__dict__ for s in statuses],
         }
 
-    def _process_export(self, db: Session, payload: dict[str, Any]) -> dict[str, Any]:
+    def _process_export(self, db: Session, job: models.AsyncJob, payload: dict[str, Any]) -> dict[str, Any]:
         model_id = int(payload["model_id"])
         export_format = str(payload.get("format", "stl")).lower()
 
@@ -237,9 +328,30 @@ class AsyncJobWorker:
 
         base_data = read_file(reconstruction.mesh_key)
         output_format = "glb" if export_format == "gltf" else export_format
-        profile = "print" if output_format == "stl" else "clinical"
+        preset = str(payload.get("preset") or "clinical").lower()
+        profile = preset if preset in {"draft", "clinical", "print", "web"} else (
+            "print" if output_format == "stl" else "clinical"
+        )
+        units = str(payload.get("units") or "mm")
+        tolerance_mm = payload.get("tolerance_mm")
+
+        if job:
+            self._update_job_progress(
+                db,
+                job,
+                stage="preparing_export",
+                progress=20,
+                eta_seconds=18,
+                detail={"message": f"Preparing {export_format.upper()} export"},
+            )
+
         converted = convert_mesh(
-            base_data, input_format="glb", output_format=output_format, quality_profile=profile
+            base_data,
+            input_format="glb",
+            output_format=output_format,
+            quality_profile=profile,
+            units=units,
+            tolerance_mm=float(tolerance_mm) if tolerance_mm is not None else None,
         )
 
         export_version = (
@@ -283,11 +395,24 @@ class AsyncJobWorker:
         db.commit()
         db.refresh(artifact)
 
+        if job:
+            self._update_job_progress(
+                db,
+                job,
+                stage="packaging_export",
+                progress=92,
+                eta_seconds=2,
+                detail={"message": "Packaging finalized export artifact"},
+            )
+
         return {
             "model_id": model_id,
             "format": export_format,
             "file_key": key,
             "artifact_id": artifact.id,
+            "units": units,
+            "preset": profile,
+            "tolerance_mm": float(tolerance_mm) if tolerance_mm is not None else None,
             "checksum_sha256": checksum,
             "signature": signature,
             "expires_at": expires_at.isoformat(),

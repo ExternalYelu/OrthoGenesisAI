@@ -13,6 +13,8 @@ class MeshQualityProfile:
     target_ratio: float
     taubin_iterations: int
     scale_mode: str
+    smoothing_lambda: float = 0.5
+    smoothing_nu: float = -0.53
 
 
 QUALITY_PROFILES: dict[str, MeshQualityProfile] = {
@@ -21,6 +23,7 @@ QUALITY_PROFILES: dict[str, MeshQualityProfile] = {
         "clinical", target_ratio=0.75, taubin_iterations=4, scale_mode="conservative"
     ),
     "print": MeshQualityProfile("print", target_ratio=0.85, taubin_iterations=6, scale_mode="print_mm"),
+    "web": MeshQualityProfile("web", target_ratio=0.62, taubin_iterations=3, scale_mode="conservative"),
 }
 
 
@@ -79,16 +82,20 @@ def _decimate(mesh: trimesh.Trimesh, ratio: float) -> trimesh.Trimesh:
     return mesh
 
 
-def _smooth_taubin(mesh: trimesh.Trimesh, iterations: int) -> None:
+def _smooth_taubin(
+    mesh: trimesh.Trimesh, iterations: int, smoothing_lambda: float, smoothing_nu: float
+) -> None:
     if iterations <= 0:
         return
     try:
-        trimesh.smoothing.filter_taubin(mesh, lamb=0.5, nu=-0.53, iterations=iterations)
+        trimesh.smoothing.filter_taubin(
+            mesh, lamb=smoothing_lambda, nu=smoothing_nu, iterations=iterations
+        )
     except Exception:
         return
 
 
-def _scale_units(mesh: trimesh.Trimesh, mode: str) -> None:
+def _scale_units(mesh: trimesh.Trimesh, mode: str, units: str = "mm") -> None:
     """
     Heuristic unit normalization.
     - print_mm: attempt to convert to millimeters for slicer consistency.
@@ -98,13 +105,22 @@ def _scale_units(mesh: trimesh.Trimesh, mode: str) -> None:
     if max_extent <= 0:
         return
 
-    if mode == "print_mm":
+    target_units = units.lower()
+
+    if mode == "print_mm" or target_units == "mm":
         # If model appears in meter-scale, convert to millimeters.
         if max_extent < 5.0:
             mesh.apply_scale(100.0)
         # If model is absurdly large, gently down-scale.
         elif max_extent > 1000.0:
             mesh.apply_scale(0.1)
+    elif target_units == "cm":
+        if max_extent < 2.0:
+            mesh.apply_scale(10.0)
+    elif target_units == "in":
+        # Convert mm-like scale to inches.
+        if max_extent > 40.0:
+            mesh.apply_scale(1.0 / 25.4)
     else:
         # Conservative keeps original units except extreme outliers.
         if max_extent > 5000.0:
@@ -117,6 +133,8 @@ def convert_mesh(
     output_format: str,
     *,
     quality_profile: str = "clinical",
+    units: str = "mm",
+    tolerance_mm: float | None = None,
 ) -> bytes:
     """
     Convert and repair mesh data between formats using trimesh.
@@ -137,8 +155,14 @@ def convert_mesh(
     mesh = _largest_component(mesh)
     mesh = _repair_mesh(mesh)
     mesh = _decimate(mesh, profile.target_ratio)
-    _smooth_taubin(mesh, profile.taubin_iterations)
-    _scale_units(mesh, profile.scale_mode)
+    iterations = profile.taubin_iterations
+    if tolerance_mm is not None:
+        if tolerance_mm < 0.2:
+            iterations = max(2, iterations - 1)
+        elif tolerance_mm > 0.8:
+            iterations = iterations + 1
+    _smooth_taubin(mesh, iterations, profile.smoothing_lambda, profile.smoothing_nu)
+    _scale_units(mesh, profile.scale_mode, units=units)
     mesh = _repair_mesh(mesh)
 
     if output_format == "gltf":

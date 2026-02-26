@@ -10,6 +10,9 @@ class AsyncJobResponse(BaseSchema):
     status: str
     attempts: int
     max_attempts: int
+    stage: str
+    progress: int
+    eta_seconds: int | None = None
     dead_letter: bool
     error: str | None = None
     result_json: dict | None = None

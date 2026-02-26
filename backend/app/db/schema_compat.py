@@ -39,3 +39,6 @@ def ensure_schema_compatibility(engine: Engine) -> None:
     _add_column(engine, "reconstructions", "confidence_version", "VARCHAR(32)")
     _add_column(engine, "reconstructions", "uncertainty_map_key", "VARCHAR(512)")
     _add_column(engine, "reconstructions", "deleted_at", "DATETIME")
+    _add_column(engine, "async_jobs", "stage", "VARCHAR(64) DEFAULT 'queued'")
+    _add_column(engine, "async_jobs", "progress", "INTEGER DEFAULT 0")
+    _add_column(engine, "async_jobs", "eta_seconds", "INTEGER")

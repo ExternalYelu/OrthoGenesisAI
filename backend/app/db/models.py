@@ -83,6 +83,7 @@ class Reconstruction(Base):
     case: Mapped[Case] = relationship(back_populates="reconstructions")
     model_versions: Mapped[list["ModelVersion"]] = relationship(back_populates="reconstruction")
     export_artifacts: Mapped[list["ExportArtifact"]] = relationship(back_populates="reconstruction")
+    annotations: Mapped[list["Annotation"]] = relationship(back_populates="reconstruction")
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"
@@ -193,8 +194,42 @@ class AsyncJob(Base):
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     max_attempts: Mapped[int] = mapped_column(Integer, default=3)
+    stage: Mapped[str] = mapped_column(String(64), default="queued")
+    progress: Mapped[int] = mapped_column(Integer, default=0)
+    eta_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     dead_letter: Mapped[bool] = mapped_column(Boolean, default=False)
     available_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class Annotation(Base):
+    __tablename__ = "annotations"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    reconstruction_id: Mapped[int] = mapped_column(ForeignKey("reconstructions.id"), index=True)
+    title: Mapped[str] = mapped_column(String(255))
+    severity: Mapped[str] = mapped_column(String(32), default="medium")
+    status: Mapped[str] = mapped_column(String(32), default="open")
+    anchor_x: Mapped[float] = mapped_column(Float)
+    anchor_y: Mapped[float] = mapped_column(Float)
+    anchor_z: Mapped[float] = mapped_column(Float)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    reconstruction: Mapped[Reconstruction] = relationship(back_populates="annotations")
+    comments: Mapped[list["AnnotationComment"]] = relationship(back_populates="annotation")
+
+
+class AnnotationComment(Base):
+    __tablename__ = "annotation_comments"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    annotation_id: Mapped[int] = mapped_column(ForeignKey("annotations.id"), index=True)
+    author: Mapped[str] = mapped_column(String(128), default="clinician")
+    message: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    annotation: Mapped[Annotation] = relationship(back_populates="comments")

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ExportRequest(BaseModel):
@@ -11,3 +11,15 @@ class ExportRequest(BaseModel):
 class ExportResponse(BaseModel):
     download_url: str
     format: str
+
+
+class ExportBundleRequest(BaseModel):
+    formats: list[str] = Field(default_factory=lambda: ["stl", "obj", "gltf"])
+    preset: str = "print"
+    units: str = "mm"
+    tolerance_mm: float = 0.25
+
+
+class ExportBundleResponse(BaseModel):
+    download_url: str
+    manifest: dict
