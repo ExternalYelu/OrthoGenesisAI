@@ -11,7 +11,7 @@ export default function ProcessingPage() {
       <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-10 px-6 py-16">
         <SectionHeader
           title="Reconstruction"
-          subtitle="AI reconstruction in progress."
+          subtitle="Track live stage, ETA, and retry failed jobs."
         />
         <SurfaceCard>
           <ProgressStepper />
@@ -29,6 +29,9 @@ export default function ProcessingPage() {
             <p className="text-sm font-semibold text-ink">Mesh Refinement</p>
             <p className="mt-2 text-xs text-slate">Artifact removal and smoothing.</p>
           </SurfaceCard>
+        </div>
+        <div className="rounded-2xl border border-red-100 bg-red-50 p-4 text-xs text-red-700">
+          Not diagnostic: reconstruction progress and outputs are for planning support.
         </div>
       </main>
       <Footer />

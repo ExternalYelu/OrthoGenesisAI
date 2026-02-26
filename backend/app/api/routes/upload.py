@@ -56,10 +56,13 @@ async def upload_xrays(
     files: list[UploadFile] = File(...),
     db: Session = Depends(get_db),
 ):
-    if len(files) != 1:
-        raise HTTPException(status_code=400, detail="Upload exactly one image for test mode")
+    if len(files) < 1:
+        raise HTTPException(status_code=400, detail="Upload at least one image")
+    if len(files) > 6:
+        raise HTTPException(status_code=400, detail="Upload up to 6 images per case")
 
-    view_list = [v.strip().lower() for v in views.split(",") if v.strip()] if views else ["single"]
+    parsed_views = [v.strip().lower() for v in views.split(",") if v.strip()] if views else []
+    view_list = parsed_views if parsed_views else ["single"] * len(files)
 
     user = _get_test_user(db)
     case = models.Case(title=title, patient_id=patient_id, owner_id=user.id)
@@ -68,7 +71,8 @@ async def upload_xrays(
     db.refresh(case)
     study: models.Study | None = None
 
-    for file, view in zip(files, view_list, strict=False):
+    for index, file in enumerate(files):
+        view = view_list[index] if index < len(view_list) else f"view-{index + 1}"
         content = await file.read()
         validation = _validate_file(file, len(content))
         if not validation.is_valid:

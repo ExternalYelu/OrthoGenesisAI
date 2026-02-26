@@ -11,7 +11,7 @@ export default function UploadPage() {
       <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-10 px-6 py-16">
         <SectionHeader
           title="Secure Upload"
-          subtitle="Upload a single X-ray for test-mode reconstruction."
+          subtitle="Hardened upload with previews, quality checks, and missing-view alerts."
         />
         <div className="grid gap-8 lg:grid-cols-[2fr,1fr]">
           <SurfaceCard>
@@ -21,7 +21,7 @@ export default function UploadPage() {
             <SurfaceCard>
               <p className="text-sm font-semibold text-ink">Validation checklist</p>
               <ul className="mt-3 space-y-2 text-xs text-slate">
-                <li>Single image test mode enabled</li>
+                <li>Multi-view detection (AP, lateral, oblique)</li>
                 <li>Consistent patient positioning</li>
                 <li>Clear bone boundaries</li>
               </ul>
@@ -30,6 +30,12 @@ export default function UploadPage() {
               <p className="text-sm font-semibold text-ink">Security</p>
               <p className="mt-2 text-xs text-slate">
                 All uploads are encrypted and logged for HIPAA-aware auditing.
+              </p>
+            </SurfaceCard>
+            <SurfaceCard>
+              <p className="text-sm font-semibold text-ink">Trust Label</p>
+              <p className="mt-2 text-xs text-slate">
+                Not diagnostic: upload results support planning and communication.
               </p>
             </SurfaceCard>
           </div>
