@@ -10,10 +10,10 @@ export default function ViewerPage() {
         <section className="rounded-[28px] border border-slate-200 bg-white p-8 shadow-soft">
           <p className="text-xs font-semibold uppercase tracking-[0.4em] text-slate/60">3D Viewer</p>
           <h1 className="mt-3 max-w-3xl text-4xl font-semibold leading-tight text-ink md:text-5xl">
-            Clear anatomy rendering for surgical inspection.
+            Clinical viewer with tools, annotations, and comparison.
           </h1>
           <p className="mt-4 max-w-2xl text-sm text-slate">
-            Load a reconstructed model, keep it plane-aligned for readability, and inspect it with smoothing, axis controls, and fullscreen view.
+            Load reconstructed models, inspect with canonical camera views, measure geometry, annotate findings, and compare pre/post side by side.
           </p>
         </section>
         <ModelViewer />
