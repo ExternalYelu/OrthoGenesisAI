@@ -11,7 +11,7 @@ export function Header() {
       <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
         <Link href="/" className="text-lg font-semibold tracking-tight text-ink">
           <span className="inline-flex items-center gap-2">
-            <BrandMark className="h-7 w-7" />
+            <BrandMark className="h-8 w-8 rounded-full" />
             <span>OrthoGenesisAI</span>
           </span>
         </Link>
