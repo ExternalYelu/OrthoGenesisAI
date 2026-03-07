@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "./Button";
 import {
   JobPayload,
+  UploadPayload,
   getJob,
   getJobStreamUrl,
   getModel,
@@ -18,6 +19,7 @@ type StageInfo = {
 };
 
 type ViewSlot = "ap" | "lateral" | "oblique";
+type RenderMode = "2_5d" | "3d";
 
 type FileQuality = {
   fingerprint: string;
@@ -134,6 +136,7 @@ export function UploadDropzone() {
     lateral: null,
     oblique: null
   });
+  const [renderMode, setRenderMode] = useState<RenderMode>("2_5d");
   const [title, setTitle] = useState("Case A");
   const [patientId, setPatientId] = useState("");
   const [status, setStatus] = useState<"idle" | "uploading" | "done" | "error">("idle");
@@ -142,6 +145,7 @@ export function UploadDropzone() {
   const [jobId, setJobId] = useState<string | null>(null);
   const [jobState, setJobState] = useState<JobPayload | null>(null);
   const [qualityMap, setQualityMap] = useState<Partial<Record<ViewSlot, FileQuality>>>({});
+  const [uploaded2DImages, setUploaded2DImages] = useState<UploadPayload["xrays"]>([]);
 
   const eventSourceRef = useRef<EventSource | null>(null);
 
@@ -161,13 +165,18 @@ export function UploadDropzone() {
     };
   }, [qualityMap]);
 
+  const visibleSlots = useMemo<ViewSlot[]>(
+    () => (renderMode === "3d" ? SLOT_ORDER : ["ap"]),
+    [renderMode]
+  );
+
   const selectedSlots = useMemo(
-    () => SLOT_ORDER.filter((slot) => Boolean(viewFiles[slot])),
-    [viewFiles]
+    () => visibleSlots.filter((slot) => Boolean(viewFiles[slot])),
+    [viewFiles, visibleSlots]
   );
 
   const qualityWarnings = useMemo(() => {
-    return SLOT_ORDER.flatMap((slot) => {
+    return visibleSlots.flatMap((slot) => {
       const quality = qualityMap[slot];
       const file = viewFiles[slot];
       if (!quality || !file) return [];
@@ -177,11 +186,11 @@ export function UploadDropzone() {
       if (quality.contrastScore < 0.12) warnings.push(`${slot.toUpperCase()}: low contrast`);
       return warnings;
     });
-  }, [qualityMap, viewFiles]);
+  }, [qualityMap, viewFiles, visibleSlots]);
 
   const missingViews = useMemo(
-    () => SLOT_ORDER.filter((slot) => !viewFiles[slot]),
-    [viewFiles]
+    () => (renderMode === "3d" ? SLOT_ORDER.filter((slot) => !viewFiles[slot]) : []),
+    [viewFiles, renderMode]
   );
 
   const updateDuplicateFlags = (next: Partial<Record<ViewSlot, FileQuality>>) => {
@@ -198,6 +207,7 @@ export function UploadDropzone() {
   };
 
   const assignFileToSlot = async (slot: ViewSlot, file: File | null) => {
+    setUploaded2DImages([]);
     const previous = qualityMap[slot];
     if (previous?.previewUrl) URL.revokeObjectURL(previous.previewUrl);
 
@@ -232,6 +242,12 @@ export function UploadDropzone() {
   const onDrop: React.DragEventHandler<HTMLDivElement> = async (event) => {
     event.preventDefault();
     const dropped = Array.from(event.dataTransfer.files || []);
+    if (renderMode === "2_5d") {
+      if (dropped[0]) {
+        await assignFileToSlot("ap", dropped[0]);
+      }
+      return;
+    }
     for (const file of dropped) {
       const inferred = inferView(file.name);
       if (inferred !== "unknown") {
@@ -293,26 +309,37 @@ export function UploadDropzone() {
   };
 
   const handleUpload = async () => {
-    if (selectedSlots.length < 1) {
+    const is3D = renderMode === "3d";
+    const minimumRequired = is3D ? 3 : 1;
+    if (selectedSlots.length < minimumRequired) {
       setStatus("error");
-      setMessage("Upload at least one X-ray file.");
+      setMessage(
+        is3D
+          ? "Please upload AP, lateral, and oblique X-rays before reconstruction."
+          : "Please upload at least one X-ray for 2D rendering."
+      );
       return;
     }
 
     const form = new FormData();
     form.append("title", title);
     if (patientId) form.append("patient_id", patientId);
+    form.append("render_mode", is3D ? "3d" : "2d");
 
     selectedSlots.forEach((slot) => {
       const file = viewFiles[slot];
       if (file) form.append("files", file);
     });
-    form.append("views", selectedSlots.join(","));
+    if (is3D) {
+      form.append("views", selectedSlots.join(","));
+    }
 
     try {
       setStatus("uploading");
       setMessage("Uploading files...");
       const upload = await uploadXrays(form);
+
+      setUploaded2DImages(upload.xrays || []);
       setMessage("Queueing reconstruction...");
       const reconstruction = await reconstruct(upload.case_id);
       setModelId(reconstruction.id);
@@ -336,7 +363,11 @@ export function UploadDropzone() {
       }
 
       setStatus("done");
-      setMessage("Reconstruction complete. Open the viewer to inspect the model.");
+      setMessage(
+        is3D
+          ? "Multi-view 3D reconstruction complete. Open the viewer to inspect the model."
+          : "Single-view 2.5D reconstruction complete. Open the viewer to inspect the model."
+      );
     } catch (error) {
       setStatus("error");
       setMessage(error instanceof Error ? error.message : "Upload or reconstruction failed.");
@@ -360,7 +391,9 @@ export function UploadDropzone() {
   };
 
   const currentStage = jobState ? STAGE_MAP[jobState.stage] : null;
-  const canRetry = Boolean(jobState && (jobState.status === "dead" || jobState.status === "failed"));
+  const canRetry = Boolean(
+    jobState && (jobState.status === "dead" || jobState.status === "failed")
+  );
 
   return (
     <div className="space-y-6">
@@ -389,17 +422,63 @@ export function UploadDropzone() {
         </div>
       </div>
 
+      <div className="rounded-2xl border border-slate/10 bg-white/80 p-4">
+        <p className="text-xs uppercase tracking-[0.3em] text-slate/50">Render Mode</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            className={`rounded-full px-4 py-2 text-xs font-semibold ${
+              renderMode === "2_5d" ? "bg-[#1f6feb] text-white" : "bg-slate-100 text-slate-700"
+            }`}
+            type="button"
+            onClick={() => {
+              closeStream();
+              setRenderMode("2_5d");
+              setStatus("idle");
+              setMessage("");
+              setJobState(null);
+              setJobId(null);
+              setModelId(null);
+            }}
+          >
+            Single X-ray 2.5D
+          </button>
+          <button
+            className={`rounded-full px-4 py-2 text-xs font-semibold ${
+              renderMode === "3d" ? "bg-[#1f6feb] text-white" : "bg-slate-100 text-slate-700"
+            }`}
+            type="button"
+            onClick={() => {
+              closeStream();
+              setRenderMode("3d");
+              setUploaded2DImages([]);
+              setStatus("idle");
+              setMessage("");
+            }}
+          >
+            3D Reconstruction (AP/Lateral/Oblique)
+          </button>
+        </div>
+      </div>
+
       <div
         className="rounded-3xl border border-dashed border-slate/30 bg-white/70 p-6 text-center"
         onDrop={onDrop}
         onDragOver={onDragOver}
       >
-        <p className="text-sm font-semibold text-ink">Drop files to auto-place by filename (AP/Lateral/Oblique)</p>
-        <p className="text-xs text-slate">Or upload each view directly in the boxes below.</p>
+        <p className="text-sm font-semibold text-ink">
+          {renderMode === "3d"
+            ? "Drop files to auto-place by filename (AP/Lateral/Oblique)"
+            : "Drop one X-ray for single-view 2.5D reconstruction"}
+        </p>
+        <p className="text-xs text-slate">
+          {renderMode === "3d"
+            ? "Or upload each required view directly in the boxes below."
+            : "This mode creates a height-based 2.5D mesh from one image."}
+        </p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
-        {SLOT_ORDER.map((slot) => {
+      <div className={`grid gap-4 ${renderMode === "3d" ? "md:grid-cols-3" : "md:grid-cols-1"}`}>
+        {visibleSlots.map((slot) => {
           const file = viewFiles[slot];
           const quality = qualityMap[slot];
           const ready = Boolean(file);
@@ -410,7 +489,9 @@ export function UploadDropzone() {
                 ready ? "border-emerald-200 bg-emerald-50/40" : "border-amber-200 bg-amber-50/40"
               }`}
             >
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-600">{slot} view</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-600">
+                {renderMode === "3d" ? `${slot} view` : "primary view"}
+              </p>
               <input
                 className="mt-3 w-full text-xs"
                 type="file"
@@ -457,7 +538,10 @@ export function UploadDropzone() {
         <p className="text-sm font-semibold text-ink">Pre-submit checks</p>
         <ul className="mt-2 space-y-1 text-xs text-slate">
           <li>
-            View slots filled: <span className="font-semibold text-ink">{selectedSlots.length}/3</span>
+            Files selected:{" "}
+            <span className="font-semibold text-ink">
+              {selectedSlots.length}/{renderMode === "3d" ? 3 : 1}
+            </span>
           </li>
           <li>
             Quality warnings: <span className={qualityWarnings.length ? "text-amber-700" : "text-emerald-700"}>{qualityWarnings.length}</span>
@@ -477,7 +561,7 @@ export function UploadDropzone() {
         ) : null}
       </div>
 
-      {jobState ? (
+      {renderMode === "3d" && jobState ? (
         <div className="rounded-2xl border border-slate/10 bg-white/80 p-4">
           <div className="flex items-center justify-between gap-3">
             <p className="text-sm font-semibold text-ink">{currentStage?.label || jobState.stage}</p>
@@ -494,18 +578,46 @@ export function UploadDropzone() {
         </div>
       ) : null}
 
+      {renderMode === "2_5d" && uploaded2DImages.length > 0 ? (
+        <div className="rounded-2xl border border-slate/10 bg-white/80 p-4">
+          <p className="text-sm font-semibold text-ink">Uploaded X-ray Preview</p>
+          <div className="mt-3 grid gap-3 md:grid-cols-2">
+            {uploaded2DImages.map((xray) => (
+              <div key={xray.id} className="rounded-xl border border-slate/15 bg-white p-3">
+                <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{xray.view}</p>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={xray.preview_url}
+                  alt={`Uploaded ${xray.view}`}
+                  className="mt-2 h-48 w-full rounded-lg border border-slate/20 object-contain"
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       {message ? (
         <p className={`text-xs ${status === "error" ? "text-red-600" : "text-slate"}`}>{message}</p>
       ) : null}
 
-      {modelId ? (
+      {renderMode === "3d" && modelId ? (
         <p className="text-xs text-slate">
           Model ID: <span className="font-semibold text-ink">{modelId}</span>
         </p>
       ) : null}
 
       <div className="flex flex-wrap items-center gap-4">
-        <Button label={status === "uploading" ? "Processing..." : "Upload & Reconstruct"} onClick={handleUpload} />
+        <Button
+          label={
+            status === "uploading"
+              ? "Processing..."
+              : renderMode === "3d"
+                ? "Upload & Reconstruct (3D)"
+                : "Upload & Reconstruct (2.5D)"
+          }
+          onClick={handleUpload}
+        />
         {canRetry ? <Button label="Retry Failed Job" variant="outline" onClick={handleRetry} /> : null}
       </div>
     </div>

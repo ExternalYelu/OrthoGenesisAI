@@ -263,7 +263,7 @@ function prepareScene(
 ): Object3D {
   const clone = scene.clone(true);
   const smoothingAmount = smoothingLevel * 0.32;
-  const iterations = Math.max(1, Math.round(smoothingLevel * 8));
+  const iterations = Math.max(1, Math.round(smoothingLevel * 12));
 
   clone.traverse((child) => {
     const mesh = child as Mesh;
@@ -596,8 +596,8 @@ export function ModelViewer() {
   const [gltfUrl, setGltfUrl] = useState<string | null>(null);
   const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
   const [message, setMessage] = useState("");
-  const [smoothingLevel, setSmoothingLevel] = useState(0.12);
-  const [smoothingEnabled, setSmoothingEnabled] = useState(false);
+  const [smoothingLevel, setSmoothingLevel] = useState(0.28);
+  const [smoothingEnabled, setSmoothingEnabled] = useState(true);
   const [planeAligned, setPlaneAligned] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showAxes, setShowAxes] = useState(true);
