@@ -3,13 +3,14 @@ from __future__ import annotations
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, File, UploadFile, Form, HTTPException
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.db import models
 from app.schemas.upload import UploadResponse, UploadValidation
 from app.services.dicom import ingest_dicom, is_dicom_upload
-from app.storage.local import save_upload
+from app.storage.local import save_upload, get_path
 from app.services.audit import log_event
 
 router = APIRouter(prefix="/upload", tags=["upload"])
@@ -53,16 +54,33 @@ async def upload_xrays(
     title: str = Form("Test Case"),
     patient_id: str | None = Form(None),
     views: str | None = Form(None),
+    render_mode: str = Form("3d"),
     files: list[UploadFile] = File(...),
     db: Session = Depends(get_db),
 ):
-    if len(files) < 1:
-        raise HTTPException(status_code=400, detail="Upload at least one image")
-    if len(files) > 6:
-        raise HTTPException(status_code=400, detail="Upload up to 6 images per case")
+    render_mode = render_mode.lower()
+    if render_mode not in {"2d", "3d"}:
+        raise HTTPException(status_code=400, detail="render_mode must be '2d' or '3d'")
+
+    if render_mode == "3d":
+        if len(files) != 3:
+            raise HTTPException(status_code=400, detail="Upload exactly 3 images: AP, lateral, oblique")
+    else:
+        if len(files) < 1:
+            raise HTTPException(status_code=400, detail="Upload at least one image for 2D mode")
+        if len(files) > 3:
+            raise HTTPException(status_code=400, detail="Upload up to 3 images for 2D mode")
 
     parsed_views = [v.strip().lower() for v in views.split(",") if v.strip()] if views else []
-    view_list = parsed_views if parsed_views else ["single"] * len(files)
+    if render_mode == "3d":
+        view_list = parsed_views if parsed_views else []
+        if len(view_list) != 3:
+            raise HTTPException(status_code=400, detail="Provide views as: ap,lateral,oblique")
+        required = {"ap", "lateral", "oblique"}
+        if set(view_list) != required:
+            raise HTTPException(status_code=400, detail="Views must include exactly: ap, lateral, oblique")
+    else:
+        view_list = parsed_views if parsed_views else [f"primary-{i + 1}" for i in range(len(files))]
 
     user = _get_test_user(db)
     case = models.Case(title=title, patient_id=patient_id, owner_id=user.id)
@@ -70,6 +88,8 @@ async def upload_xrays(
     db.commit()
     db.refresh(case)
     study: models.Study | None = None
+
+    uploaded_xrays: list[models.XRayImage] = []
 
     for index, file in enumerate(files):
         view = view_list[index] if index < len(view_list) else f"view-{index + 1}"
@@ -149,14 +169,26 @@ async def upload_xrays(
             metadata_json=dicom_metadata,
         )
         db.add(xray)
+        uploaded_xrays.append(xray)
 
     db.commit()
+    for xray in uploaded_xrays:
+        db.refresh(xray)
     log_event(db, user.id, "upload", f"case:{case.id}", f"{len(files)} images uploaded")
     return UploadResponse(
         case_id=case.id,
         received=len(files),
         required_views=view_list,
         study_id=study.id if study else None,
+        render_mode=render_mode,
+        xrays=[
+            {
+                "id": xray.id,
+                "view": xray.view,
+                "preview_url": f"/upload/xrays/{xray.id}/file",
+            }
+            for xray in uploaded_xrays
+        ],
     )
 
 
@@ -176,3 +208,21 @@ def soft_delete_case(case_id: int, db: Session = Depends(get_db)):
     ).update({"deleted_at": now})
     db.commit()
     return {"status": "deleted", "case_id": case_id}
+
+
+@router.get("/xrays/{xray_id}/file")
+def get_xray_file(xray_id: int, db: Session = Depends(get_db)):
+    xray = db.query(models.XRayImage).filter(models.XRayImage.id == xray_id).first()
+    if not xray:
+        raise HTTPException(status_code=404, detail="X-ray not found")
+    path = get_path(xray.file_key)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="X-ray file missing")
+
+    suffix = path.suffix.lower()
+    media_type = "image/png"
+    if suffix == ".jpg" or suffix == ".jpeg":
+        media_type = "image/jpeg"
+    elif suffix == ".dcm":
+        media_type = "application/dicom"
+    return FileResponse(path, media_type=media_type, filename=path.name)

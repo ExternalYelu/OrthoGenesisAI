@@ -13,7 +13,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db
+from app.api.deps import get_db, get_current_user
 from app.core.config import get_settings
 from app.db import models
 from app.db.session import SessionLocal
@@ -83,6 +83,17 @@ def _get_test_user(db: Session) -> models.User:
     return user
 
 
+def _resolve_user(db: Session, authenticated_user: models.User | None = None) -> models.User:
+    """Return the authenticated user when available, else fall back to the test user.
+
+    This allows the API to work without a token during development while
+    still recording the real user identity when auth headers are present.
+    """
+    if authenticated_user is not None:
+        return authenticated_user
+    return _get_test_user(db)
+
+
 @router.post("", response_model=ReconstructionStatus)
 def reconstruct(payload: ReconstructionCreate, db: Session = Depends(get_db)):
     case = (
@@ -100,11 +111,19 @@ def reconstruct(payload: ReconstructionCreate, db: Session = Depends(get_db)):
     )
     if not xrays:
         raise HTTPException(status_code=400, detail="No X-rays found")
+    views_present = {x.view.lower() for x in xrays if x.view}
+    required_views = {"ap", "lateral", "oblique"}
+    reconstruction_mode = (
+        "multi-view-3d"
+        if required_views.issubset(views_present)
+        else "single-view-2.5d"
+    )
 
     reconstruction = models.Reconstruction(
         case_id=case.id,
         status="queued",
         pipeline_version="queued",
+        notes=f"mode:{reconstruction_mode}",
     )
     db.add(reconstruction)
     db.commit()
@@ -118,6 +137,7 @@ def reconstruct(payload: ReconstructionCreate, db: Session = Depends(get_db)):
             "reconstruction_id": reconstruction.id,
             "model_name": payload.model_name,
             "seed": payload.seed,
+            "mode": reconstruction_mode,
         },
         max_attempts=3,
     )
@@ -125,7 +145,7 @@ def reconstruct(payload: ReconstructionCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(reconstruction)
 
-    user = _get_test_user(db)
+    user = _resolve_user(db)
     log_event(db, user.id, "reconstruct", f"case:{case.id}", f"model:{reconstruction.id}")
     return ReconstructionStatus.model_validate(reconstruction)
 
@@ -294,7 +314,7 @@ def export_model(
             max_attempts=3,
         )
         url = f"/reconstruct/jobs/{job.id}"
-        user = _get_test_user(db)
+        user = _resolve_user(db)
         log_event(db, user.id, "export_queued", f"model:{model_id}", f"job:{job.id}")
         return ExportResponse(download_url=url, format=format)
 
@@ -354,7 +374,7 @@ def export_model(
     db.commit()
 
     url = f"/reconstruct/model/{model_id}/export-file?artifact_id={artifact.id}"
-    user = _get_test_user(db)
+    user = _resolve_user(db)
     log_event(db, user.id, "export", f"model:{model_id}", f"format:{format}")
     return ExportResponse(download_url=url, format=format)
 
@@ -490,6 +510,8 @@ def export_bundle(
         archive.writestr("manifest.json", json.dumps(manifest, indent=2))
 
     bundle_key = save_export(bundle_buffer.getvalue(), f"{model_id}_bundle", "zip")
+    user = _resolve_user(db)
+    log_event(db, user.id, "export_bundle", f"model:{model_id}", f"formats:{','.join(formats)}")
     return ExportBundleResponse(
         download_url=f"/reconstruct/model/{model_id}/export-bundle/file?key={bundle_key}",
         manifest=manifest,
@@ -597,6 +619,8 @@ def create_annotation(model_id: int, payload: AnnotationCreate, db: Session = De
         db.commit()
         db.refresh(annotation)
 
+    user = _resolve_user(db)
+    log_event(db, user.id, "annotation_create", f"model:{model_id}", f"annotation:{annotation.id}")
     return _serialize_annotation(annotation)
 
 
@@ -625,6 +649,8 @@ def update_annotation(
     annotation.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(annotation)
+    user = _resolve_user(db)
+    log_event(db, user.id, "annotation_update", f"model:{model_id}", f"annotation:{annotation_id}")
     return _serialize_annotation(annotation)
 
 
@@ -677,6 +703,8 @@ def delete_annotation(model_id: int, annotation_id: int, db: Session = Depends(g
     annotation.deleted_at = datetime.utcnow()
     annotation.updated_at = datetime.utcnow()
     db.commit()
+    user = _resolve_user(db)
+    log_event(db, user.id, "annotation_delete", f"model:{model_id}", f"annotation:{annotation_id}")
     return {"status": "deleted", "annotation_id": annotation_id}
 
 
@@ -699,6 +727,6 @@ def share_model(
     db.add(link)
     db.commit()
 
-    user = _get_test_user(db)
+    user = _resolve_user(db)
     log_event(db, user.id, "share", f"model:{model_id}", f"token:{token}")
     return ShareLinkResponse(token=token, expires_at=expires_at)

@@ -1,5 +1,20 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api";
 
+export type UploadedXRayFile = {
+  id: number;
+  view: string;
+  preview_url: string;
+};
+
+export type UploadPayload = {
+  case_id: number;
+  received: number;
+  required_views: string[];
+  study_id?: number | null;
+  render_mode: "2d" | "3d";
+  xrays: UploadedXRayFile[];
+};
+
 export type JobPayload = {
   id: string;
   status: string;
@@ -47,7 +62,14 @@ export async function uploadXrays(payload: FormData, token?: string) {
       throw new Error(text || "Upload failed");
     }
   }
-  return response.json();
+  const data = (await response.json()) as UploadPayload;
+  if (Array.isArray(data.xrays)) {
+    data.xrays = data.xrays.map((xray) => ({
+      ...xray,
+      preview_url: xray.preview_url?.startsWith("/") ? `${API_URL}${xray.preview_url}` : xray.preview_url
+    }));
+  }
+  return data;
 }
 
 export async function reconstruct(caseId: number, token?: string) {

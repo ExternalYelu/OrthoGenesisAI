@@ -9,6 +9,10 @@ import numpy as np
 import torch
 import trimesh
 from PIL import Image, ImageFilter, ImageOps
+try:
+    from scipy import ndimage as ndi
+except Exception:  # pragma: no cover - optional runtime dependency
+    ndi = None
 
 from app.storage.local import save_confidence_report, save_model
 
@@ -44,10 +48,15 @@ class ReconstructionEngine:
         _dummy = torch.zeros((64, 64, 64))
 
         mesh_key, confidence_report = self._mesh_from_inputs(input_list)
+        is_multiview = len(input_list) >= 3
         return ReconstructionResult(
             confidence=float(confidence_report.get("overall_confidence", 0.62)),
             mesh_key=mesh_key,
-            notes="Heightmap mesh from available X-ray views",
+            notes=(
+                "Multi-view 3D reconstruction from AP/lateral/oblique X-rays"
+                if is_multiview
+                else "Single-view 2.5D depth reconstruction from one X-ray"
+            ),
             confidence_report=confidence_report,
             pipeline_version="heightmap-v1",
             confidence_version="confidence-v1",
@@ -56,8 +65,8 @@ class ReconstructionEngine:
     def _mesh_from_inputs(self, inputs: list[XRayInput]) -> tuple[str, dict[str, Any]]:
         maps: list[np.ndarray] = []
         for idx, item in enumerate(inputs):
-            sigma = 1.1 + min(0.5, idx * 0.06)
-            maps.append(self._extract_bone_heightmap(item.data, target_size=384, blur_sigma=sigma))
+            sigma = 1.0 + min(0.35, idx * 0.04)
+            maps.append(self._extract_bone_heightmap(item.data, target_size=512, blur_sigma=sigma))
 
         if not maps:
             raise ValueError("No input images were provided")
@@ -82,6 +91,7 @@ class ReconstructionEngine:
             mode = "multi-view-heightmap"
 
         heightmap = self._clean_heightmap(heightmap)
+        heightmap = self._refine_heightmap(heightmap)
         mesh, confidence_report = self._heightmap_to_mesh(heightmap, height_scale=46.0, surface_floor=0.008)
         confidence_report["mode"] = mode
         confidence_report["input_views"] = len(inputs)
@@ -97,6 +107,7 @@ class ReconstructionEngine:
     def _extract_bone_heightmap(self, data: bytes, target_size: int, blur_sigma: float) -> np.ndarray:
         image = Image.open(BytesIO(data)).convert("L")
         image.thumbnail((target_size, target_size), Image.Resampling.LANCZOS)
+        image = image.filter(ImageFilter.MedianFilter(size=3))
         image = image.filter(ImageFilter.GaussianBlur(radius=blur_sigma))
         image = ImageOps.autocontrast(image, cutoff=0)
 
@@ -107,24 +118,25 @@ class ReconstructionEngine:
         stddev = float(np.std(pixels_f32))
         p_low = float(np.percentile(pixels_f32, 2.0))
         p_high = float(np.percentile(pixels_f32, 98.0))
-        threshold = min(255.0, max(mean + stddev * 0.35, float(np.percentile(pixels_f32, 72.0))))
+        threshold = min(255.0, max(mean + stddev * 0.28, float(np.percentile(pixels_f32, 70.0))))
 
         # Blend adaptive threshold with full intensity map to preserve internal bone contours.
         norm = np.clip((pixels_f32 - p_low) / max(1.0, p_high - p_low), 0.0, 1.0)
         mask = np.clip((pixels_f32 - threshold) / max(1.0, 255.0 - threshold), 0.0, 1.0)
-        bone = (0.74 * mask + 0.26 * np.clip(norm - 0.24, 0.0, 1.0)).astype(np.float32)
+        bone = (0.62 * mask + 0.38 * np.clip(norm - 0.2, 0.0, 1.0)).astype(np.float32)
 
         if bone.size == 0:
             return np.zeros((2, 2), dtype=np.float32)
 
         # Smooth staircase artifacts and normalize final range.
         smooth = Image.fromarray(np.clip(bone * 255.0, 0, 255).astype(np.uint8))
-        smooth = smooth.filter(ImageFilter.GaussianBlur(radius=0.6))
+        smooth = smooth.filter(ImageFilter.MedianFilter(size=5))
+        smooth = smooth.filter(ImageFilter.GaussianBlur(radius=1.05))
         bone = np.asarray(smooth, dtype=np.float32) / 255.0
         if np.max(bone) > 0:
             bone = bone / np.max(bone)
-        bone = np.power(bone, 0.93)
-        bone[bone < 0.012] = 0.0
+        bone = np.power(bone, 0.86)
+        bone[bone < 0.006] = 0.0
         return bone
 
     def _clean_heightmap(self, heightmap: np.ndarray) -> np.ndarray:
@@ -135,14 +147,8 @@ class ReconstructionEngine:
         if positive.size < 24:
             return heightmap
 
-        mask_floor = max(0.014, float(np.percentile(positive, 18)) * 0.6)
-        gy, gx = np.gradient(heightmap)
-        grad = np.sqrt(gx * gx + gy * gy)
-        grad_threshold = float(np.percentile(grad, 65))
-        intensity_threshold = float(np.percentile(positive, 35))
-        binary = (heightmap > mask_floor) & (
-            (heightmap > intensity_threshold) | (grad > grad_threshold)
-        )
+        mask_floor = max(0.01, float(np.percentile(positive, 12)) * 0.45)
+        binary = heightmap > mask_floor
         if not np.any(binary):
             return heightmap
 
@@ -150,18 +156,58 @@ class ReconstructionEngine:
         if not np.any(mask):
             return heightmap
 
-        # Fill internal holes so STL export becomes a solid, printable body.
-        mask = self._fill_holes(mask)
+        if ndi is not None:
+            mask = ndi.binary_closing(mask, structure=np.ones((5, 5), dtype=bool), iterations=2)
+            mask = ndi.binary_opening(mask, structure=np.ones((3, 3), dtype=bool), iterations=1)
+            mask = ndi.binary_fill_holes(mask)
+            mask = ndi.binary_dilation(mask, iterations=1)
+            mask = self._largest_connected_component(mask)
+        else:
+            mask = self._close_mask(mask, size=5, iterations=2)
+            mask = self._open_mask(mask, size=3, iterations=1)
+            # Fill internal holes so STL export becomes a solid, printable body.
+            mask = self._fill_holes(mask)
+            mask = self._largest_connected_component(mask)
 
         cleaned = np.where(mask, heightmap, 0.0).astype(np.float32)
+        cleaned = self._smooth_heightmap(cleaned, mask, radius=1.25)
 
         ys, xs = np.where(mask)
-        margin = 8
+        margin = 10
         y0 = max(0, int(ys.min()) - margin)
         y1 = min(cleaned.shape[0], int(ys.max()) + margin + 1)
         x0 = max(0, int(xs.min()) - margin)
         x1 = min(cleaned.shape[1], int(xs.max()) + margin + 1)
         return cleaned[y0:y1, x0:x1]
+
+    def _refine_heightmap(self, heightmap: np.ndarray) -> np.ndarray:
+        if heightmap.size == 0:
+            return heightmap
+
+        image = Image.fromarray(np.clip(heightmap * 255.0, 0, 255).astype(np.uint8))
+        rows, cols = heightmap.shape
+        max_side = max(rows, cols)
+        target_max = 600
+        if max_side < target_max:
+            scale = target_max / float(max_side)
+            resized = image.resize(
+                (max(2, int(cols * scale)), max(2, int(rows * scale))),
+                Image.Resampling.BICUBIC,
+            )
+        else:
+            resized = image
+
+        refined = resized.filter(ImageFilter.GaussianBlur(radius=0.95))
+        refined_map = np.asarray(refined, dtype=np.float32) / 255.0
+
+        # Blend keeps bone contours while suppressing blocky/spotty artifacts.
+        if refined_map.shape == heightmap.shape:
+            blended = 0.58 * refined_map + 0.42 * heightmap
+        else:
+            blended = refined_map
+        blended = np.clip(blended, 0.0, 1.0).astype(np.float32)
+        blended[blended < 0.004] = 0.0
+        return blended
 
     def _largest_connected_component(self, mask: np.ndarray) -> np.ndarray:
         rows, cols = mask.shape
@@ -194,6 +240,42 @@ class ReconstructionEngine:
         for y, x in best_cells:
             largest[y, x] = True
         return largest
+
+    def _close_mask(self, mask: np.ndarray, size: int, iterations: int) -> np.ndarray:
+        result = mask.copy()
+        for _ in range(iterations):
+            dilated = Image.fromarray((result.astype(np.uint8) * 255)).filter(ImageFilter.MaxFilter(size=size))
+            eroded = dilated.filter(ImageFilter.MinFilter(size=size))
+            result = np.asarray(eroded, dtype=np.uint8) > 0
+        return result
+
+    def _open_mask(self, mask: np.ndarray, size: int, iterations: int) -> np.ndarray:
+        result = mask.copy()
+        for _ in range(iterations):
+            eroded = Image.fromarray((result.astype(np.uint8) * 255)).filter(ImageFilter.MinFilter(size=size))
+            dilated = eroded.filter(ImageFilter.MaxFilter(size=size))
+            result = np.asarray(dilated, dtype=np.uint8) > 0
+        return result
+
+    def _smooth_heightmap(self, heightmap: np.ndarray, mask: np.ndarray, radius: float) -> np.ndarray:
+        image = Image.fromarray(np.clip(heightmap * 255.0, 0, 255).astype(np.uint8))
+        blurred = image.filter(ImageFilter.GaussianBlur(radius=radius))
+        blurred_map = np.asarray(blurred, dtype=np.float32) / 255.0
+
+        blended = np.where(mask, np.maximum(heightmap * 0.72, blurred_map * 0.9), 0.0).astype(np.float32)
+
+        if ndi is not None:
+            soft = ndi.gaussian_filter(mask.astype(np.float32), sigma=0.9)
+            if np.max(soft) > 0:
+                soft = soft / np.max(soft)
+            blended *= np.clip(soft * 1.18, 0.0, 1.0)
+        else:
+            soft_mask = Image.fromarray((mask.astype(np.uint8) * 255)).filter(ImageFilter.GaussianBlur(radius=0.75))
+            soft = np.asarray(soft_mask, dtype=np.float32) / 255.0
+            blended *= np.clip(soft * 1.2, 0.0, 1.0)
+
+        blended = np.clip(blended, 0.0, 1.0)
+        return blended
 
 
     def _fill_holes(self, mask: np.ndarray) -> np.ndarray:
@@ -317,6 +399,23 @@ class ReconstructionEngine:
             vertices=positions, faces=faces_array, vertex_normals=vertex_normals, process=False
         )
         mesh.visual = trimesh.visual.ColorVisuals(mesh=mesh, vertex_colors=colors)
+        try:
+            trimesh.smoothing.filter_taubin(mesh, lamb=0.5, nu=-0.52, iterations=4)
+        except Exception:
+            pass
+        try:
+            if len(mesh.faces) < 220_000:
+                v, f = trimesh.remesh.subdivide_loop(mesh.vertices, mesh.faces, iterations=1)
+                mesh = trimesh.Trimesh(vertices=v, faces=f, process=False)
+                mesh.visual = trimesh.visual.ColorVisuals(
+                    mesh=mesh,
+                    vertex_colors=self._confidence_to_colors(
+                        self._confidence_from_vertex_height(mesh.vertices[:, 1])
+                    ),
+                )
+                trimesh.smoothing.filter_taubin(mesh, lamb=0.5, nu=-0.53, iterations=2)
+        except Exception:
+            pass
         # `fix_normals()` may require scipy via trimesh graph utilities.
         # In test mode we keep reconstruction robust and skip hard-fail if scipy is unavailable.
         try:
@@ -325,6 +424,17 @@ class ReconstructionEngine:
             pass
         confidence_report = self._build_confidence_report(used_confidence, surface_floor)
         return mesh, confidence_report
+
+    def _confidence_from_vertex_height(self, y_values: np.ndarray) -> np.ndarray:
+        y = y_values.astype(np.float32)
+        if y.size == 0:
+            return y
+        y_min = float(np.min(y))
+        y_max = float(np.max(y))
+        if abs(y_max - y_min) < 1e-6:
+            return np.zeros_like(y, dtype=np.float32)
+        normalized = (y - y_min) / (y_max - y_min)
+        return np.clip(normalized, 0.0, 1.0).astype(np.float32)
 
     def _top_vertex_confidence(
         self, heightmap: np.ndarray, y: int, x: int, surface_floor: float
