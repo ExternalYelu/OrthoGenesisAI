@@ -41,15 +41,15 @@ const complianceItems = [
 
 export function Footer() {
   return (
-    <footer className="relative border-t border-slate/[0.06]">
+    <footer className="relative border-t" style={{ borderColor: "var(--color-border)" }}>
       <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent/20 to-transparent" />
       <div className="mx-auto w-full max-w-7xl px-6 py-12">
         <div className="grid gap-10 md:grid-cols-[2fr,1fr,1fr]">
           <div className="space-y-4">
             <p className="text-base font-semibold tracking-tight text-ink">
-              Ortho<span className="text-accent">Genesis</span>AI
+              Ortho<span className="text-accent">Genesis</span><span className="text-bio">AI</span>
             </p>
-            <p className="max-w-sm text-sm leading-relaxed text-slate/60">
+            <p className="max-w-sm text-sm leading-relaxed text-slate">
               AI-powered 3D bone reconstruction for orthopedic planning,
               patient education, and surgical preparation. Built for clinical-grade
               precision and security.
@@ -57,7 +57,7 @@ export function Footer() {
           </div>
 
           <div className="space-y-3">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate/40">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate/60">
               Product
             </p>
             <nav className="flex flex-col gap-2">
@@ -65,7 +65,7 @@ export function Footer() {
                 <Link
                   key={link.href}
                   href={link.href}
-                  className="text-sm text-slate/60 transition-colors hover:text-ink"
+                  className="text-sm text-slate transition-colors hover:text-ink"
                 >
                   {link.label}
                 </Link>
@@ -74,12 +74,12 @@ export function Footer() {
           </div>
 
           <div className="space-y-3">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate/40">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate/60">
               Compliance
             </p>
             <div className="flex flex-col gap-2.5">
               {complianceItems.map((item) => (
-                <div key={item.label} className="flex items-center gap-2 text-slate/50">
+                <div key={item.label} className="flex items-center gap-2 text-slate">
                   <span className="flex-shrink-0">{item.icon}</span>
                   <span className="text-sm">{item.label}</span>
                 </div>
@@ -88,13 +88,13 @@ export function Footer() {
           </div>
         </div>
 
-        <div className="mt-10 flex flex-col items-center justify-between gap-4 border-t border-slate/[0.06] pt-6 md:flex-row">
-          <p className="text-xs text-slate/40">
+        <div className="mt-10 flex flex-col items-center justify-between gap-4 border-t pt-6 md:flex-row" style={{ borderColor: "var(--color-border)" }}>
+          <p className="text-xs text-slate/60">
             © {new Date().getFullYear()} OrthoGenesisAI. All rights reserved.
           </p>
           <div className="flex items-center gap-4">
             <span className="badge-blue">Research Use</span>
-            <span className="badge-teal">SOC 2 Ready</span>
+            <span className="badge-green">SOC 2 Ready</span>
           </div>
         </div>
       </div>

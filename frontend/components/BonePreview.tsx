@@ -10,22 +10,22 @@ function BoneShape() {
 
   useFrame((state) => {
     const t = state.clock.elapsedTime;
-    mesh.current.rotation.y = t * 0.2;
-    mesh.current.rotation.x = Math.sin(t * 0.15) * 0.15;
-    mesh.current.rotation.z = Math.cos(t * 0.1) * 0.05;
+    mesh.current.rotation.y = t * 0.18;
+    mesh.current.rotation.x = Math.sin(t * 0.12) * 0.12;
+    mesh.current.rotation.z = Math.cos(t * 0.08) * 0.04;
   });
 
   return (
-    <Float speed={1.5} rotationIntensity={0.3} floatIntensity={0.5}>
+    <Float speed={1.2} rotationIntensity={0.25} floatIntensity={0.4}>
       <mesh ref={mesh} castShadow receiveShadow>
         <torusKnotGeometry args={[0.8, 0.32, 200, 32, 2, 3]} />
         <MeshDistortMaterial
-          color="#E8EFF8"
-          roughness={0.28}
-          metalness={0.06}
-          distort={0.15}
-          speed={1.8}
-          envMapIntensity={0.4}
+          color="#94A3B8"
+          roughness={0.2}
+          metalness={0.15}
+          distort={0.12}
+          speed={1.5}
+          envMapIntensity={0.6}
         />
       </mesh>
     </Float>
@@ -36,13 +36,13 @@ function GlowRing() {
   const ref = useRef<THREE.Mesh>(null!);
 
   useFrame((state) => {
-    ref.current.rotation.z = state.clock.elapsedTime * 0.08;
+    ref.current.rotation.z = state.clock.elapsedTime * 0.06;
   });
 
   return (
     <mesh ref={ref} position={[0, 0, -0.5]}>
-      <torusGeometry args={[1.8, 0.005, 16, 100]} />
-      <meshBasicMaterial color="#2E7DF6" transparent opacity={0.18} />
+      <torusGeometry args={[1.8, 0.004, 16, 100]} />
+      <meshBasicMaterial color="#10B981" transparent opacity={0.2} />
     </mesh>
   );
 }
@@ -51,10 +51,10 @@ function GridFloor() {
   const grid = useMemo(() => {
     const geo = new THREE.PlaneGeometry(12, 12, 24, 24);
     const mat = new THREE.MeshBasicMaterial({
-      color: "#2E7DF6",
+      color: "#3B82F6",
       wireframe: true,
       transparent: true,
-      opacity: 0.04
+      opacity: 0.03
     });
     return { geo, mat };
   }, []);
@@ -66,13 +66,13 @@ function GridFloor() {
 
 export function BonePreview() {
   return (
-    <div className="relative h-[400px] w-full overflow-hidden rounded-3xl bg-gradient-to-br from-[#f0f5fc] via-[#f7fafd] to-[#eef6f5]">
+    <div className="relative h-[420px] w-full overflow-hidden rounded-3xl border" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
       <div className="absolute inset-0 bg-hero-mesh" />
       <Canvas camera={{ position: [3.5, 2, 3.5], fov: 36 }} shadows>
-        <ambientLight intensity={0.5} />
-        <directionalLight position={[5, 8, 5]} intensity={1.0} castShadow shadow-mapSize={1024} />
-        <directionalLight position={[-3, 4, -2]} intensity={0.3} color="#2AC7B0" />
-        <pointLight position={[0, 3, 0]} intensity={0.2} color="#2E7DF6" />
+        <ambientLight intensity={0.4} />
+        <directionalLight position={[5, 8, 5]} intensity={0.9} castShadow shadow-mapSize={1024} />
+        <directionalLight position={[-3, 4, -2]} intensity={0.25} color="#10B981" />
+        <pointLight position={[0, 3, 0]} intensity={0.15} color="#3B82F6" />
         <BoneShape />
         <GlowRing />
         <GridFloor />
@@ -80,15 +80,15 @@ export function BonePreview() {
           enableZoom={false}
           enablePan={false}
           autoRotate
-          autoRotateSpeed={0.4}
+          autoRotateSpeed={0.35}
           maxPolarAngle={Math.PI / 1.8}
           minPolarAngle={Math.PI / 4}
         />
         <Environment preset="city" environmentIntensity={0.3} />
       </Canvas>
       <div className="absolute bottom-4 left-4 flex items-center gap-2">
-        <span className="h-2 w-2 animate-pulse rounded-full bg-teal" />
-        <span className="text-[11px] font-medium text-slate/40">Live 3D Preview</span>
+        <span className="h-2 w-2 animate-pulse rounded-full bg-bio" />
+        <span className="text-[11px] font-medium text-slate">Live 3D Preview</span>
       </div>
     </div>
   );

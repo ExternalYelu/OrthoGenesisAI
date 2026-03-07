@@ -17,25 +17,25 @@ export function SurfaceCard({
   const base = "rounded-2xl p-6 transition-all duration-300 ease-out-expo";
   const variants = {
     default: clsx(
-      "border border-white/60 bg-white/80 shadow-card backdrop-blur-sm",
+      "border bg-[var(--color-surface)] shadow-card",
       hover && "hover:shadow-card-hover hover:-translate-y-[2px]"
     ),
     elevated: clsx(
-      "bg-white shadow-soft-lg",
+      "bg-[var(--color-surface)] shadow-soft-lg",
       hover && "hover:shadow-glow hover:-translate-y-[2px]"
     ),
     bordered: clsx(
-      "gradient-border bg-white/60 backdrop-blur-sm",
-      hover && "hover:bg-white/80 hover:-translate-y-[1px]"
+      "gradient-border bg-[var(--color-surface)]/60 backdrop-blur-sm",
+      hover && "hover:bg-[var(--color-surface)]/80 hover:-translate-y-[1px]"
     ),
     gradient: clsx(
-      "border border-accent/[0.08] bg-gradient-to-br from-white via-white to-accent/[0.03]",
+      "border bg-[var(--color-surface)]",
       hover && "hover:shadow-card-hover hover:-translate-y-[2px]"
     )
   };
 
   return (
-    <div className={clsx(base, variants[variant], className)}>
+    <div className={clsx(base, variants[variant], className)} style={{ borderColor: "var(--color-border)" }}>
       {children}
     </div>
   );

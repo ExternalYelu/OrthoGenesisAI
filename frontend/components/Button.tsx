@@ -36,14 +36,14 @@ export function Button({
 
   const styles = {
     primary: clsx(
-      "bg-accent text-white shadow-sm",
-      "hover:bg-accent-dark hover:shadow-md hover:-translate-y-[1px]",
+      "bg-gradient-to-r from-accent to-bio text-white shadow-sm",
+      "hover:shadow-glow hover:-translate-y-[1px]",
       "active:translate-y-0 active:shadow-sm"
     ),
-    ghost: "text-slate/70 hover:text-ink hover:bg-slate/[0.05]",
+    ghost: "text-slate hover:text-ink hover:bg-[var(--color-surface-muted)]",
     outline: clsx(
-      "border border-slate/[0.12] text-ink bg-white/60",
-      "hover:border-accent/30 hover:text-accent hover:bg-accent/[0.03]"
+      "border text-ink bg-[var(--color-surface)]",
+      "hover:border-accent/30 hover:text-accent hover:bg-accent/[0.04]"
     ),
     danger: clsx(
       "bg-danger text-white shadow-sm",
@@ -75,14 +75,14 @@ export function Button({
 
   if (href && !disabled) {
     return (
-      <Link className={classes} href={href}>
+      <Link className={classes} href={href} style={variant === "outline" ? { borderColor: "var(--color-border)" } : undefined}>
         {content}
       </Link>
     );
   }
 
   return (
-    <button className={classes} onClick={onClick} disabled={disabled || loading} type="button">
+    <button className={classes} onClick={onClick} disabled={disabled || loading} type="button" style={variant === "outline" ? { borderColor: "var(--color-border)" } : undefined}>
       {content}
     </button>
   );
