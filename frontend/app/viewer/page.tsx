@@ -5,28 +5,50 @@ import { ModelViewer } from "@/components/ModelViewer";
 
 export default function ViewerPage() {
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex min-h-screen flex-col" style={{ background: "var(--color-frost)" }}>
       <Header />
-      <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-8 px-6 py-14">
-        <section className="relative overflow-hidden rounded-2xl border border-slate/[0.06] bg-white p-8 shadow-card">
-          <div className="absolute inset-0 bg-hero-mesh opacity-50" />
-          <div className="relative">
+      <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6 px-6 py-10">
+        {/* Page header */}
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div className="space-y-2">
             <div className="flex items-center gap-3">
-              <div className="h-px w-8 bg-gradient-to-r from-accent/40 to-transparent" />
-              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-accent/70">
-                3D Viewer
-              </p>
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-accent/10 to-bio/10 text-accent">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+                  <polyline points="3.29 7 12 12 20.71 7" />
+                  <line x1="12" y1="22" x2="12" y2="12" />
+                </svg>
+              </div>
+              <div>
+                <h1 className="text-2xl font-semibold text-ink">3D Viewer</h1>
+                <p className="text-sm text-slate">
+                  Load a model by ID, then inspect, measure, annotate, and compare.
+                </p>
+              </div>
             </div>
-            <h1 className="mt-3 max-w-3xl text-3xl font-semibold leading-tight text-ink md:text-4xl">
-              Clinical viewer with tools, annotations, and comparison.
-            </h1>
-            <p className="mt-4 max-w-2xl text-sm leading-relaxed text-slate/60">
-              Load reconstructed models, inspect with canonical camera views, measure geometry,
-              annotate findings, and compare pre/post side by side with difference heatmaps.
-            </p>
           </div>
-        </section>
-        <Suspense fallback={<div className="flex h-96 items-center justify-center text-slate/40">Loading viewer…</div>}>
+          <div className="flex items-center gap-2 text-xs text-slate">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+            Enter a Model ID (from Upload page) to load your reconstruction
+          </div>
+        </div>
+
+        {/* Viewer */}
+        <Suspense fallback={
+          <div className="flex h-[500px] items-center justify-center rounded-2xl border text-slate" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
+            <div className="flex items-center gap-3">
+              <svg className="h-5 w-5 animate-spin text-accent" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              Loading viewer…
+            </div>
+          </div>
+        }>
           <ModelViewer />
         </Suspense>
       </main>

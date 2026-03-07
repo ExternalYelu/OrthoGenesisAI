@@ -2,7 +2,6 @@ import { BonePreview } from "@/components/BonePreview";
 import { Button } from "@/components/Button";
 import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
-import { SectionHeader } from "@/components/SectionHeader";
 import { SurfaceCard } from "@/components/SurfaceCard";
 import { AnimatedStats } from "@/components/AnimatedStats";
 
@@ -73,34 +72,41 @@ const features = [
 
 const stats = [
   { value: 98.2, suffix: "%", label: "Mean reconstruction accuracy" },
-  { value: 3, suffix: " min", label: "Average reconstruction time" },
+  { value: 3, suffix: " min", label: "Average processing time" },
   { value: 100, suffix: "%", label: "HIPAA audit coverage" }
 ];
 
 export default function HomePage() {
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex min-h-screen flex-col" style={{ background: "var(--color-frost)" }}>
       <Header />
       <main className="flex-1">
         {/* ── Hero ── */}
         <section className="relative overflow-hidden">
-          <div className="absolute inset-0 bg-grid opacity-60" />
+          <div className="absolute inset-0 bg-grid opacity-40" />
           <div className="absolute inset-0 bg-hero-mesh" />
-          <div className="relative mx-auto flex w-full max-w-7xl flex-col gap-12 px-6 py-20 lg:flex-row lg:items-center lg:gap-16 lg:py-28">
+          {/* Organic blobs */}
+          <div className="pointer-events-none absolute -left-32 top-20 h-72 w-72 rounded-full bg-accent/[0.06] blur-3xl" />
+          <div className="pointer-events-none absolute -right-24 top-40 h-80 w-80 rounded-full bg-bio/[0.08] blur-3xl" />
+          <div className="pointer-events-none absolute bottom-0 left-1/2 h-64 w-96 -translate-x-1/2 rounded-full bg-teal/[0.05] blur-3xl" />
+
+          <div className="relative mx-auto flex w-full max-w-7xl flex-col gap-12 px-6 py-24 lg:flex-row lg:items-center lg:gap-16 lg:py-32">
             <div className="flex-1 space-y-8 animate-fade-up">
               <div className="flex items-center gap-3">
                 <span className="badge-blue">Clinical AI</span>
-                <span className="badge-teal">Open Beta</span>
+                <span className="badge-green">Open Beta</span>
               </div>
-              <h1 className="text-4xl font-bold leading-[1.1] tracking-tight md:text-[3.4rem]">
+              <h1 className="text-4xl font-bold leading-[1.08] tracking-tight md:text-[3.5rem] lg:text-[3.8rem]">
                 <span className="gradient-text-hero">
-                  Turn multi-view X-rays into surgical-grade 3D bone models.
+                  From X-rays to 3D bone models
                 </span>
+                <br />
+                <span className="text-ink">in minutes.</span>
               </h1>
-              <p className="max-w-lg text-base leading-relaxed text-slate/70">
-                OrthoGenesisAI reconstructs precise, 3D-printable anatomy for
-                orthopedic planning, patient education, and personalized care.
-                Secure, fast, and built for clinical workflows.
+              <p className="max-w-lg text-base leading-relaxed text-slate">
+                OrthoGenesisAI reconstructs precise, 3D-printable anatomy from
+                multi-view X-rays for surgical planning, patient education,
+                and personalized orthopedic care.
               </p>
               <div className="flex flex-wrap items-center gap-4">
                 <Button href="/upload" label="Upload X-rays" size="lg" icon={
@@ -112,6 +118,29 @@ export default function HomePage() {
                 } />
                 <Button href="/viewer" label="Explore Demo" variant="outline" size="lg" />
               </div>
+              {/* Trust indicators */}
+              <div className="flex items-center gap-6 pt-2">
+                <div className="flex items-center gap-2 text-xs text-slate">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                  </svg>
+                  HIPAA Compliant
+                </div>
+                <div className="flex items-center gap-2 text-xs text-slate">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                  </svg>
+                  E2E Encrypted
+                </div>
+                <div className="flex items-center gap-2 text-xs text-slate">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                    <polyline points="22 4 12 14.01 9 11.01" />
+                  </svg>
+                  SOC 2 Ready
+                </div>
+              </div>
             </div>
             <div className="flex-1 animate-fade-up" style={{ animationDelay: "200ms" }}>
               <BonePreview />
@@ -120,63 +149,79 @@ export default function HomePage() {
         </section>
 
         {/* ── Stats ── */}
-        <section className="border-y border-slate/[0.06] bg-white/50 backdrop-blur-sm">
-          <div className="mx-auto w-full max-w-7xl px-6 py-12">
+        <section className="border-y bg-[var(--color-surface)]/50 backdrop-blur-sm" style={{ borderColor: "var(--color-border)" }}>
+          <div className="mx-auto w-full max-w-7xl px-6 py-14">
             <AnimatedStats stats={stats} />
           </div>
         </section>
 
         {/* ── Features ── */}
-        <section className="mx-auto w-full max-w-7xl space-y-12 px-6 py-20">
-          <SectionHeader
-            title="Capabilities"
-            subtitle="Clinical-grade precision from upload to export."
-            align="center"
-          />
-          <div className="stagger-children grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+        <section className="mx-auto w-full max-w-7xl space-y-14 px-6 py-24">
+          <div className="flex flex-col items-center gap-3 text-center">
+            <div className="flex items-center gap-3">
+              <div className="h-px w-8 bg-gradient-to-r from-accent to-transparent" />
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-accent">
+                Capabilities
+              </p>
+              <div className="h-px w-8 bg-gradient-to-l from-bio to-transparent" />
+            </div>
+            <h2 className="max-w-2xl text-3xl font-semibold leading-snug text-ink md:text-4xl">
+              Everything you need, from scan to surgery.
+            </h2>
+            <p className="max-w-lg text-sm text-slate">
+              Clinical-grade precision at every step of the orthopedic imaging pipeline.
+            </p>
+          </div>
+          <div className="stagger-children grid gap-5 md:grid-cols-2 lg:grid-cols-3">
             {features.map((item) => (
-              <SurfaceCard key={item.title} variant="gradient">
-                <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-accent/[0.07] text-accent">
+              <SurfaceCard key={item.title}>
+                <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-accent/10 to-bio/10 text-accent">
                   {item.icon}
                 </div>
                 <p className="text-[15px] font-semibold text-ink">{item.title}</p>
-                <p className="mt-2 text-sm leading-relaxed text-slate/60">{item.desc}</p>
+                <p className="mt-2 text-sm leading-relaxed text-slate">{item.desc}</p>
               </SurfaceCard>
             ))}
           </div>
         </section>
 
         {/* ── Workflow ── */}
-        <section className="bg-ink text-white">
-          <div className="mx-auto w-full max-w-7xl px-6 py-20">
-            <div className="mb-12 flex flex-col items-center text-center">
-              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-accent-light/70">
+        <section className="bg-[#020617] text-white">
+          <div className="mx-auto w-full max-w-7xl px-6 py-24">
+            <div className="mb-14 flex flex-col items-center text-center">
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-bio">
                 How it works
               </p>
-              <h2 className="mt-3 text-3xl font-semibold md:text-4xl">
+              <h2 className="mt-4 text-3xl font-semibold md:text-4xl">
                 From X-ray to 3D model in three steps
               </h2>
+              <p className="mt-3 max-w-md text-sm text-white/50">
+                A streamlined pipeline that handles the complexity so you can focus on clinical decisions.
+              </p>
             </div>
-            <div className="grid gap-8 md:grid-cols-3">
+            <div className="grid gap-6 md:grid-cols-3">
               {[
                 {
                   step: "01",
                   title: "Upload",
-                  desc: "Drag and drop your AP, lateral, and oblique X-rays. DICOM files are automatically de-identified."
+                  desc: "Drag and drop your AP, lateral, and oblique X-rays. DICOM files are automatically de-identified.",
+                  gradient: "from-accent/20 to-accent/5"
                 },
                 {
                   step: "02",
                   title: "Reconstruct",
-                  desc: "Our AI pipeline extracts bone geometry, aligns multi-view data, and generates a confidence-mapped mesh."
+                  desc: "Our AI pipeline extracts bone geometry, aligns multi-view data, and generates a confidence-mapped mesh.",
+                  gradient: "from-bio/20 to-bio/5"
                 },
                 {
                   step: "03",
                   title: "Review & Export",
-                  desc: "Inspect in the 3D viewer, add annotations, measure geometry, then export STL/OBJ for printing or planning."
+                  desc: "Inspect in the 3D viewer, add annotations, measure geometry, then export STL/OBJ for printing or planning.",
+                  gradient: "from-teal/20 to-teal/5"
                 }
               ].map((item) => (
-                <div key={item.step} className="group relative rounded-2xl border border-white/[0.08] bg-white/[0.03] p-8 transition-colors hover:bg-white/[0.06]">
-                  <p className="text-5xl font-bold text-accent/20">{item.step}</p>
+                <div key={item.step} className={`group relative overflow-hidden rounded-2xl border border-white/[0.06] bg-gradient-to-b ${item.gradient} p-8 transition-all duration-300 hover:border-white/[0.12] hover:-translate-y-1`}>
+                  <p className="font-mono text-5xl font-bold text-white/[0.08]">{item.step}</p>
                   <p className="mt-4 text-lg font-semibold">{item.title}</p>
                   <p className="mt-2 text-sm leading-relaxed text-white/50">{item.desc}</p>
                 </div>
@@ -187,17 +232,17 @@ export default function HomePage() {
 
         {/* ── CTA ── */}
         <section className="relative overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-br from-accent/[0.04] via-transparent to-teal/[0.04]" />
-          <div className="relative mx-auto flex w-full max-w-4xl flex-col items-center gap-6 px-6 py-20 text-center">
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-accent/[0.04] via-transparent to-bio/[0.04]" />
+          <div className="relative mx-auto flex w-full max-w-4xl flex-col items-center gap-6 px-6 py-24 text-center">
             <h2 className="text-3xl font-semibold text-ink md:text-4xl">
               Ready to transform your imaging workflow?
             </h2>
-            <p className="max-w-lg text-sm text-slate/60">
+            <p className="max-w-lg text-sm text-slate">
               Start with a free reconstruction. No credit card required. HIPAA-aware
               from day one.
             </p>
             <div className="flex flex-wrap items-center justify-center gap-4">
-              <Button href="/upload" label="Get Started" size="lg" />
+              <Button href="/upload" label="Get Started Free" size="lg" />
               <Button href="/auth" label="Sign In" variant="outline" size="lg" />
             </div>
           </div>

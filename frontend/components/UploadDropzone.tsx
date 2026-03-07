@@ -398,37 +398,42 @@ export function UploadDropzone() {
   return (
     <div className="space-y-6">
       <div className="grid gap-4 md:grid-cols-2">
-        <div className="rounded-2xl border border-slate/10 bg-white/80 p-4">
-          <label className="text-xs uppercase tracking-[0.3em] text-slate/50" htmlFor="case-title">
+        <div className="rounded-2xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
+          <label className="text-xs uppercase tracking-[0.3em] text-slate" htmlFor="case-title">
             Case
           </label>
           <input
             id="case-title"
-            className="mt-2 w-full rounded-xl border border-slate/20 px-3 py-2 text-sm"
+            className="mt-2 w-full rounded-xl border px-3 py-2 text-sm text-ink"
+            style={{ borderColor: "var(--color-border)", background: "var(--color-surface-muted)" }}
             value={title}
             onChange={(event) => setTitle(event.target.value)}
           />
         </div>
-        <div className="rounded-2xl border border-slate/10 bg-white/80 p-4">
-          <label className="text-xs uppercase tracking-[0.3em] text-slate/50" htmlFor="patient-id">
+        <div className="rounded-2xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
+          <label className="text-xs uppercase tracking-[0.3em] text-slate" htmlFor="patient-id">
             Patient ID
           </label>
           <input
             id="patient-id"
-            className="mt-2 w-full rounded-xl border border-slate/20 px-3 py-2 text-sm"
+            className="mt-2 w-full rounded-xl border px-3 py-2 text-sm text-ink"
+            style={{ borderColor: "var(--color-border)", background: "var(--color-surface-muted)" }}
             value={patientId}
             onChange={(event) => setPatientId(event.target.value)}
           />
         </div>
       </div>
 
-      <div className="rounded-2xl border border-slate/10 bg-white/80 p-4">
-        <p className="text-xs uppercase tracking-[0.3em] text-slate/50">Render Mode</p>
+      <div className="rounded-2xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
+        <p className="text-xs uppercase tracking-[0.3em] text-slate">Render Mode</p>
         <div className="mt-3 flex flex-wrap gap-2">
           <button
-            className={`rounded-full px-4 py-2 text-xs font-semibold ${
-              renderMode === "2_5d" ? "bg-[#1f6feb] text-white" : "bg-slate-100 text-slate-700"
+            className={`rounded-full px-4 py-2 text-xs font-semibold transition-all ${
+              renderMode === "2_5d"
+                ? "bg-gradient-to-r from-accent to-bio text-white shadow-sm"
+                : "border text-slate hover:text-ink"
             }`}
+            style={renderMode !== "2_5d" ? { borderColor: "var(--color-border)", background: "var(--color-surface-muted)" } : undefined}
             type="button"
             onClick={() => {
               closeStream();
@@ -443,9 +448,12 @@ export function UploadDropzone() {
             Single X-ray 2.5D
           </button>
           <button
-            className={`rounded-full px-4 py-2 text-xs font-semibold ${
-              renderMode === "3d" ? "bg-[#1f6feb] text-white" : "bg-slate-100 text-slate-700"
+            className={`rounded-full px-4 py-2 text-xs font-semibold transition-all ${
+              renderMode === "3d"
+                ? "bg-gradient-to-r from-accent to-bio text-white shadow-sm"
+                : "border text-slate hover:text-ink"
             }`}
+            style={renderMode !== "3d" ? { borderColor: "var(--color-border)", background: "var(--color-surface-muted)" } : undefined}
             type="button"
             onClick={() => {
               closeStream();
@@ -461,16 +469,24 @@ export function UploadDropzone() {
       </div>
 
       <div
-        className="rounded-3xl border border-dashed border-slate/30 bg-white/70 p-6 text-center"
+        className="rounded-3xl border-2 border-dashed p-8 text-center transition-colors"
+        style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
         onDrop={onDrop}
         onDragOver={onDragOver}
       >
+        <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-accent/10 text-accent">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="17 8 12 3 7 8" />
+            <line x1="12" y1="3" x2="12" y2="15" />
+          </svg>
+        </div>
         <p className="text-sm font-semibold text-ink">
           {renderMode === "3d"
             ? "Drop files to auto-place by filename (AP/Lateral/Oblique)"
             : "Drop one X-ray for single-view 2.5D reconstruction"}
         </p>
-        <p className="text-xs text-slate">
+        <p className="mt-1 text-xs text-slate">
           {renderMode === "3d"
             ? "Or upload each required view directly in the boxes below."
             : "This mode creates a height-based 2.5D mesh from one image."}
@@ -485,21 +501,21 @@ export function UploadDropzone() {
           return (
             <div
               key={slot}
-              className={`rounded-2xl border p-4 ${
-                ready ? "border-emerald-200 bg-emerald-50/40" : "border-amber-200 bg-amber-50/40"
+              className={`rounded-2xl border p-4 transition-colors ${
+                ready ? "border-bio/30 bg-bio/[0.04]" : "border-warning/30 bg-warning/[0.04]"
               }`}
             >
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-600">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate">
                 {renderMode === "3d" ? `${slot} view` : "primary view"}
               </p>
               <input
-                className="mt-3 w-full text-xs"
+                className="mt-3 w-full text-xs text-ink"
                 type="file"
                 accept=".png,.jpg,.jpeg,.dcm,image/png,image/jpeg,application/dicom"
                 onChange={(event) => onSlotChange(slot, event.target.files)}
               />
 
-              <div className="mt-3 rounded-xl border border-slate/10 bg-white p-3">
+              <div className="mt-3 rounded-xl border p-3" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
                 {file ? (
                   <div className="space-y-2">
                     <p className="truncate text-xs font-semibold text-ink">{file.name}</p>
@@ -509,24 +525,25 @@ export function UploadDropzone() {
                       <img
                         src={quality.previewUrl}
                         alt={`${slot} preview`}
-                        className="h-20 w-full rounded-lg border border-slate/20 object-cover"
+                        className="h-20 w-full rounded-lg border object-cover"
+                        style={{ borderColor: "var(--color-border)" }}
                       />
                     ) : (
-                      <div className="flex h-20 items-center justify-center rounded-lg border border-slate/20 text-[11px] text-slate">
+                      <div className="flex h-20 items-center justify-center rounded-lg border text-[11px] text-slate" style={{ borderColor: "var(--color-border)" }}>
                         DICOM selected
                       </div>
                     )}
                     <div className="flex flex-wrap gap-2 text-[11px]">
-                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate">
+                      <span className="rounded-full px-2 py-0.5 text-slate" style={{ background: "var(--color-surface-muted)" }}>
                         Blur {Math.round((quality?.blurScore ?? 0) * 100)}%
                       </span>
-                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate">
+                      <span className="rounded-full px-2 py-0.5 text-slate" style={{ background: "var(--color-surface-muted)" }}>
                         Contrast {Math.round((quality?.contrastScore ?? 0) * 100)}%
                       </span>
                     </div>
                   </div>
                 ) : (
-                  <p className="text-xs text-amber-700">No file added yet.</p>
+                  <p className="text-xs text-warning">No file added yet.</p>
                 )}
               </div>
             </div>
@@ -534,7 +551,7 @@ export function UploadDropzone() {
         })}
       </div>
 
-      <div className="rounded-2xl border border-slate/10 bg-white/80 p-4">
+      <div className="rounded-2xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
         <p className="text-sm font-semibold text-ink">Pre-submit checks</p>
         <ul className="mt-2 space-y-1 text-xs text-slate">
           <li>
@@ -544,16 +561,16 @@ export function UploadDropzone() {
             </span>
           </li>
           <li>
-            Quality warnings: <span className={qualityWarnings.length ? "text-amber-700" : "text-emerald-700"}>{qualityWarnings.length}</span>
+            Quality warnings: <span className={qualityWarnings.length ? "text-warning" : "text-bio"}>{qualityWarnings.length}</span>
           </li>
         </ul>
         {missingViews.length > 0 ? (
-          <p className="mt-2 text-[11px] text-amber-700">
+          <p className="mt-2 text-[11px] text-warning">
             Missing recommended views: {missingViews.map((view) => view.toUpperCase()).join(", ")}
           </p>
         ) : null}
         {qualityWarnings.length > 0 ? (
-          <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-[11px] text-amber-800">
+          <div className="mt-2 rounded-xl border border-warning/20 bg-warning/[0.06] p-3 text-[11px] text-warning">
             {qualityWarnings.map((warning) => (
               <p key={warning}>{warning}</p>
             ))}
@@ -562,34 +579,35 @@ export function UploadDropzone() {
       </div>
 
       {renderMode === "3d" && jobState ? (
-        <div className="rounded-2xl border border-slate/10 bg-white/80 p-4">
+        <div className="rounded-2xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
           <div className="flex items-center justify-between gap-3">
             <p className="text-sm font-semibold text-ink">{currentStage?.label || jobState.stage}</p>
             <p className="text-xs text-slate">{jobState.progress}%</p>
           </div>
-          <div className="mt-2 h-2 w-full rounded-full bg-slate-100">
+          <div className="mt-2 h-2 w-full overflow-hidden rounded-full" style={{ background: "var(--color-surface-muted)" }}>
             <div
-              className="h-2 rounded-full bg-[#1f6feb] transition-all duration-300"
+              className="h-2 rounded-full bg-gradient-to-r from-accent to-bio transition-all duration-300"
               style={{ width: `${jobState.progress}%` }}
             />
           </div>
           <p className="mt-2 text-xs text-slate">{currentStage?.description || "Processing update received."}</p>
-          {jobState.error ? <p className="mt-2 text-xs text-red-600">Failure reason: {jobState.error}</p> : null}
+          {jobState.error ? <p className="mt-2 text-xs text-danger">Failure reason: {jobState.error}</p> : null}
         </div>
       ) : null}
 
       {renderMode === "2_5d" && uploaded2DImages.length > 0 ? (
-        <div className="rounded-2xl border border-slate/10 bg-white/80 p-4">
+        <div className="rounded-2xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
           <p className="text-sm font-semibold text-ink">Uploaded X-ray Preview</p>
           <div className="mt-3 grid gap-3 md:grid-cols-2">
             {uploaded2DImages.map((xray) => (
-              <div key={xray.id} className="rounded-xl border border-slate/15 bg-white p-3">
-                <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{xray.view}</p>
+              <div key={xray.id} className="rounded-xl border p-3" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
+                <p className="text-[11px] uppercase tracking-[0.18em] text-slate">{xray.view}</p>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={xray.preview_url}
                   alt={`Uploaded ${xray.view}`}
-                  className="mt-2 h-48 w-full rounded-lg border border-slate/20 object-contain"
+                  className="mt-2 h-48 w-full rounded-lg border object-contain"
+                  style={{ borderColor: "var(--color-border)" }}
                 />
               </div>
             ))}
@@ -598,12 +616,49 @@ export function UploadDropzone() {
       ) : null}
 
       {message ? (
-        <p className={`text-xs ${status === "error" ? "text-red-600" : "text-slate"}`}>{message}</p>
+        <p className={`text-xs ${status === "error" ? "text-danger" : "text-slate"}`}>{message}</p>
       ) : null}
 
-      {renderMode === "3d" && modelId ? (
+      {/* ── Model ID result card (shown for both modes) ── */}
+      {modelId && status === "done" ? (
+        <div className="rounded-2xl border-2 border-bio/30 bg-gradient-to-r from-bio/5 to-accent/5 p-5">
+          <div className="flex items-start gap-4">
+            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-bio/10 text-bio">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                <polyline points="22 4 12 14.01 9 11.01" />
+              </svg>
+            </div>
+            <div className="flex-1 space-y-2">
+              <p className="text-sm font-semibold text-ink">Reconstruction Complete</p>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-slate">Model ID:</span>
+                <code className="rounded-lg bg-[var(--color-surface-muted)] px-3 py-1.5 font-mono text-lg font-bold text-accent">{modelId}</code>
+                <button
+                  type="button"
+                  className="rounded-lg bg-[var(--color-surface-muted)] p-1.5 text-slate transition-colors hover:text-ink"
+                  onClick={() => navigator.clipboard?.writeText(String(modelId))}
+                  aria-label="Copy Model ID"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                  </svg>
+                </button>
+              </div>
+              <p className="text-xs text-slate">
+                Go to the{" "}
+                <a href={`/viewer?model_id=${modelId}`} className="font-medium text-accent underline decoration-accent/30 underline-offset-2 hover:decoration-accent">
+                  3D Viewer →
+                </a>
+                {" "}and enter this ID to inspect your model.
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : modelId && status !== "done" ? (
         <p className="text-xs text-slate">
-          Model ID: <span className="font-semibold text-ink">{modelId}</span>
+          Model ID: <span className="font-mono font-semibold text-ink">{modelId}</span>
         </p>
       ) : null}
 

@@ -60,7 +60,7 @@ export function AnimatedStats({ stats }: { stats: Stat[] }) {
       {stats.map((stat) => (
         <div key={stat.label} className="flex flex-col items-center gap-2 text-center">
           <Counter value={stat.value} suffix={stat.suffix} />
-          <p className="text-sm text-slate/50">{stat.label}</p>
+          <p className="text-sm text-slate">{stat.label}</p>
         </div>
       ))}
     </div>
