@@ -1,6 +1,6 @@
 import "./globals.css";
-import type { Metadata } from "next";
-import { Space_Grotesk, IBM_Plex_Sans } from "next/font/google";
+import type { Metadata, Viewport } from "next";
+import { Space_Grotesk, IBM_Plex_Sans, JetBrains_Mono } from "next/font/google";
 
 const spaceGrotesk = Space_Grotesk({
   subsets: ["latin"],
@@ -14,9 +14,27 @@ const ibmPlexSans = IBM_Plex_Sans({
   weight: ["300", "400", "500", "600"]
 });
 
+const jetBrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  variable: "--font-mono",
+  weight: ["400", "500"]
+});
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  themeColor: "#F7FAFD"
+};
+
 export const metadata: Metadata = {
-  title: "OrthoGenesisAI",
-  description: "AI-powered 3D reconstruction from multi-view X-rays."
+  title: {
+    default: "OrthoGenesisAI",
+    template: "%s | OrthoGenesisAI"
+  },
+  description:
+    "AI-powered 3D bone reconstruction from multi-view X-rays. Surgical planning, patient education, and 3D-print-ready models.",
+  keywords: ["orthopedic", "3D reconstruction", "X-ray", "bone model", "surgical planning", "HIPAA"],
+  authors: [{ name: "OrthoGenesisAI" }]
 };
 
 export default function RootLayout({
@@ -25,11 +43,13 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body className={`${spaceGrotesk.variable} ${ibmPlexSans.variable}`}>
+    <html lang="en" className="scroll-smooth">
+      <body
+        className={`${spaceGrotesk.variable} ${ibmPlexSans.variable} ${jetBrainsMono.variable} antialiased`}
+      >
         <a
           href="#page-content"
-          className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-white focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-[#0b1220]"
+          className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-white focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-ink focus:shadow-lg"
         >
           Skip to content
         </a>
