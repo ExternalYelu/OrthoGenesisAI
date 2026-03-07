@@ -4,6 +4,8 @@
 
 :root {
   color-scheme: light;
+  --color-accent: 46 125 246;
+  --color-teal: 42 199 176;
 }
 
 * {
@@ -12,7 +14,7 @@
 
 body {
   @apply bg-frost text-ink font-body;
-  background-color: #eff3f8;
+  background: linear-gradient(180deg, #f7fafd 0%, #edf2f8 50%, #f0f4fa 100%);
   min-height: 100vh;
   text-rendering: geometricPrecision;
   -webkit-font-smoothing: antialiased;
@@ -24,31 +26,139 @@ main {
 }
 
 ::selection {
-  background: rgba(46, 125, 246, 0.2);
+  background: rgba(46, 125, 246, 0.16);
 }
 
+/* Link underline animation */
 .link-underline {
   position: relative;
 }
-
 .link-underline::after {
   content: "";
   position: absolute;
   left: 0;
   bottom: -2px;
-  height: 2px;
+  height: 1.5px;
   width: 100%;
   background: currentColor;
   transform: scaleX(0);
   transform-origin: left;
-  transition: transform 0.25s ease;
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
-
 .link-underline:hover::after {
   transform: scaleX(1);
 }
 
 :focus-visible {
-  outline: 2px solid #1f6feb;
+  outline: 2px solid rgb(var(--color-accent));
   outline-offset: 2px;
+}
+
+/* Glass morphism utility */
+.glass {
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+}
+.glass-strong {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(24px) saturate(200%);
+  -webkit-backdrop-filter: blur(24px) saturate(200%);
+}
+
+/* Gradient text utility */
+.gradient-text {
+  background: linear-gradient(135deg, #0B1220 0%, #2E7DF6 50%, #2AC7B0 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.gradient-text-hero {
+  background: linear-gradient(135deg, #0B1220 10%, #1B5FCC 45%, #2E7DF6 65%, #2AC7B0 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Animated gradient border */
+.gradient-border {
+  position: relative;
+}
+.gradient-border::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, rgba(46,125,246,0.3), rgba(42,199,176,0.3));
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  -webkit-mask-composite: xor;
+  pointer-events: none;
+}
+
+/* Stagger children animation utility */
+.stagger-children > * {
+  animation: fade-up 0.6s ease-out both;
+}
+.stagger-children > *:nth-child(1) { animation-delay: 0ms; }
+.stagger-children > *:nth-child(2) { animation-delay: 80ms; }
+.stagger-children > *:nth-child(3) { animation-delay: 160ms; }
+.stagger-children > *:nth-child(4) { animation-delay: 240ms; }
+.stagger-children > *:nth-child(5) { animation-delay: 320ms; }
+.stagger-children > *:nth-child(6) { animation-delay: 400ms; }
+
+/* Subtle grid background */
+.bg-grid {
+  background-image:
+    linear-gradient(rgba(46,125,246,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(46,125,246,0.03) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+/* Shimmer loading skeleton */
+.shimmer-bg {
+  background: linear-gradient(110deg, #edf1f7 25%, #f7fafd 50%, #edf1f7 75%);
+  background-size: 200% 100%;
+  animation: shimmer 2.4s ease-in-out infinite;
+}
+
+/* Badge / pill base */
+.badge {
+  @apply inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-semibold tracking-wide;
+}
+.badge-blue {
+  @apply badge text-accent;
+  background-color: rgb(var(--accent-rgb, 59 130 246) / 0.08);
+}
+.badge-teal {
+  @apply badge text-teal;
+  background-color: rgb(var(--teal-rgb, 20 184 166) / 0.1);
+}
+.badge-amber {
+  @apply badge text-warning;
+  background-color: rgb(var(--warning-rgb, 245 158 11) / 0.1);
+}
+.badge-red {
+  @apply badge text-danger;
+  background-color: rgb(var(--danger-rgb, 239 68 68) / 0.1);
+}
+
+/* Scroll-driven entrance (progressive enhancement) */
+@supports (animation-timeline: view()) {
+  .reveal-on-scroll {
+    animation: fade-up 0.6s ease-out both;
+    animation-timeline: view();
+    animation-range: entry 0% entry 30%;
+  }
+}
+
+/* Smooth page transitions */
+@keyframes page-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+#page-content {
+  animation: page-enter 0.4s ease-out;
 }
