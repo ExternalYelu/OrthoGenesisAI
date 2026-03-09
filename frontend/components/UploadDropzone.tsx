@@ -341,7 +341,11 @@ export function UploadDropzone() {
 
       setUploaded2DImages(upload.xrays || []);
       setMessage("Queueing reconstruction...");
-      const reconstruction = await reconstruct(upload.case_id);
+      const reconstruction = await reconstruct(
+        upload.case_id,
+        undefined,
+        is3D ? "implicit-field" : undefined,
+      );
       setModelId(reconstruction.id);
 
       const jobMatch =

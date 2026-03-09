@@ -38,3 +38,18 @@ data/uncertainty/
 backend/data/*.db
 
 frontend/*.tsbuildinfo
+
+# ML checkpoints & training artifacts
+data/checkpoints/
+backend/data/checkpoints/
+
+# Demo / generated outputs
+backend/data/demo_xrays/
+data/demo_xrays/
+
+# Large binary model files
+*.pt
+*.onnx
+*.glb
+*.stl
+*.obj

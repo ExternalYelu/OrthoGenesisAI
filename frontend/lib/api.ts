@@ -72,14 +72,14 @@ export async function uploadXrays(payload: FormData, token?: string) {
   return data;
 }
 
-export async function reconstruct(caseId: number, token?: string) {
+export async function reconstruct(caseId: number, token?: string, modelName?: string) {
   const response = await fetch(`${API_URL}/reconstruct`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {})
     },
-    body: JSON.stringify({ case_id: caseId })
+    body: JSON.stringify({ case_id: caseId, ...(modelName ? { model_name: modelName } : {}) })
   });
   if (!response.ok) {
     const text = await response.text();

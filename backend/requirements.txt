@@ -16,6 +16,8 @@ numpy==2.0.1
 pygltflib==1.16.0
 pillow==10.4.0
 scipy==1.14.1
+scikit-image==0.24.0
+nibabel==5.4.0
 pydicom==3.0.1
 rq==1.16.2
 redis==5.0.8

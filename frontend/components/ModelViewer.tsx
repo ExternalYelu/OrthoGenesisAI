@@ -26,6 +26,7 @@ import {
   listAnnotations,
   updateAnnotation
 } from "@/lib/api";
+import { useTheme } from "@/components/ThemeProvider";
 
 type RotationAxis = "none" | "x" | "y" | "z";
 type ToolMode = "none" | "distance" | "angle" | "annotate";
@@ -465,7 +466,7 @@ function AnnotationPins({
             />
           </mesh>
           <Html distanceFactor={18} position={[0, 2.4, 0]}>
-            <div className="rounded-md border border-slate-200 bg-white/95 px-2 py-1 text-[10px] font-semibold text-slate-700 shadow">
+            <div className="rounded-md border px-2 py-1 text-[10px] font-semibold shadow" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)", color: "var(--color-ink)" }}>
               {annotation.severity.toUpperCase()}
             </div>
           </Html>
@@ -590,6 +591,8 @@ function ComparisonScene({
 
 export function ModelViewer() {
   const searchParams = useSearchParams();
+  const { theme } = useTheme();
+  const isDark = theme === "dark";
 
   const [transparent, setTransparent] = useState(false);
   const [modelId, setModelId] = useState(searchParams.get("model") || "1");
@@ -961,50 +964,56 @@ export function ModelViewer() {
     <div className="grid gap-7 lg:grid-cols-[2.2fr,1fr]">
       <div
         ref={viewerRef}
-        className="relative overflow-hidden rounded-[24px] border border-slate-200 bg-white p-5 shadow-soft"
+        className="relative overflow-hidden rounded-[24px] border p-5 shadow-soft"
+        style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
       >
         <div className="relative z-10 flex flex-wrap items-center justify-between gap-3 pb-4">
           <div>
             <p className="text-sm font-semibold tracking-wide text-ink">3D Reconstruction</p>
-            <p className="text-xs text-slate-500">Top/side/oblique camera presets, keyboard shortcuts, and measurement workflow</p>
+            <p className="text-xs text-slate">Top/side/oblique camera presets, keyboard shortcuts, and measurement workflow</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <button
-              className="rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate"
+              className="rounded-full border px-4 py-2 text-xs font-semibold text-slate transition-colors hover:text-ink"
+              style={{ borderColor: "var(--color-border)", background: "var(--color-surface-muted)" }}
               onClick={() => setTransparent((prev) => !prev)}
             >
               {transparent ? "Solid" : "Transparent"}
             </button>
             <button
-              className="rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate"
+              className="rounded-full border px-4 py-2 text-xs font-semibold text-slate transition-colors hover:text-ink"
+              style={{ borderColor: "var(--color-border)", background: "var(--color-surface-muted)" }}
               onClick={() => setSmoothingEnabled((prev) => !prev)}
             >
               {smoothingEnabled ? "Smoothed On" : "Smoothed Off"}
             </button>
             <button
-              className={`rounded-full border px-4 py-2 text-xs font-semibold ${
+              className={`rounded-full border px-4 py-2 text-xs font-semibold transition-colors ${
                 confidenceOverlay
-                  ? "border-slate-800 bg-slate-800 text-white"
-                  : "border-slate-300 bg-white text-slate"
+                  ? "border-accent bg-accent text-white"
+                  : "text-slate hover:text-ink"
               }`}
+              style={!confidenceOverlay ? { borderColor: "var(--color-border)", background: "var(--color-surface-muted)" } : undefined}
               onClick={() => setConfidenceOverlay((prev) => !prev)}
             >
               {confidenceOverlay ? "Confidence On" : "Confidence Off"}
             </button>
             <button
-              className="rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate"
+              className="rounded-full border px-4 py-2 text-xs font-semibold text-slate transition-colors hover:text-ink"
+              style={{ borderColor: "var(--color-border)", background: "var(--color-surface-muted)" }}
               onClick={() => setCompareMode((prev) => !prev)}
             >
               {compareMode ? "Single Model" : "Comparison"}
             </button>
             <button
-              className="rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate"
+              className="rounded-full border px-4 py-2 text-xs font-semibold text-slate transition-colors hover:text-ink"
+              style={{ borderColor: "var(--color-border)", background: "var(--color-surface-muted)" }}
               onClick={toggleFullscreen}
             >
               {isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
             </button>
             <button
-              className="rounded-full bg-[#1f6feb] px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-[#1f6feb]/30"
+              className="rounded-full bg-gradient-to-r from-accent to-bio px-4 py-2 text-xs font-semibold text-white shadow-lg"
               onClick={handleLoad}
             >
               {status === "loading" ? "Loading..." : "Load Model"}
@@ -1012,20 +1021,20 @@ export function ModelViewer() {
           </div>
         </div>
 
-        <div className={`${isFullscreen ? "h-[calc(100vh-92px)]" : "h-[620px]"} relative rounded-2xl border border-slate-200 bg-[#edf1f7]`}>
+        <div className={`${isFullscreen ? "h-[calc(100vh-92px)]" : "h-[620px]"} relative rounded-2xl border`} style={{ borderColor: "var(--color-border)", background: isDark ? "#1a1e2e" : "#edf1f7" }}>
           <Canvas shadows camera={{ position: [250, 180, 220], fov: 36 }}>
-            <color attach="background" args={["#edf1f7"]} />
-            <ambientLight intensity={0.72} />
-            <hemisphereLight args={["#f8fbff", "#c8d3e4", 0.55]} />
-            <directionalLight castShadow position={[260, 340, 280]} intensity={2.1} shadow-mapSize-width={2048} shadow-mapSize-height={2048} />
-            <directionalLight position={[-220, 150, -240]} intensity={1.0} />
+            <color attach="background" args={[isDark ? "#1a1e2e" : "#edf1f7"]} />
+            <ambientLight intensity={isDark ? 0.5 : 0.72} />
+            <hemisphereLight args={[isDark ? "#2a3050" : "#f8fbff", isDark ? "#0d1117" : "#c8d3e4", isDark ? 0.35 : 0.55]} />
+            <directionalLight castShadow position={[260, 340, 280]} intensity={isDark ? 2.8 : 2.1} shadow-mapSize-width={2048} shadow-mapSize-height={2048} />
+            <directionalLight position={[-220, 150, -240]} intensity={isDark ? 1.4 : 1.0} />
             <Environment preset="studio" />
 
             <mesh receiveShadow rotation={[-Math.PI / 2, 0, 0]} position={[0, -9.5, 0]}>
               <planeGeometry args={[1600, 1600]} />
-              <meshStandardMaterial color="#97a7bf" roughness={0.9} metalness={0} />
+              <meshStandardMaterial color={isDark ? "#1e2436" : "#97a7bf"} roughness={0.9} metalness={0} />
             </mesh>
-            <gridHelper args={[1100, 40, "#a4b5cc", "#bac8dc"]} position={[0, -9.4, 0]} />
+            <gridHelper args={[1100, 40, isDark ? "#2a3352" : "#a4b5cc", isDark ? "#222844" : "#bac8dc"]} position={[0, -9.4, 0]} />
 
             {compareMode && gltfUrl && compareUrl ? (
               <ComparisonScene
@@ -1061,7 +1070,7 @@ export function ModelViewer() {
             {!compareMode && !gltfUrl ? (
               <mesh>
                 <sphereGeometry args={[18, 64, 64]} />
-                <meshStandardMaterial color="#dbe8fb" />
+                <meshStandardMaterial color={isDark ? "#2a3a5c" : "#dbe8fb"} />
               </mesh>
             ) : null}
 
@@ -1092,26 +1101,27 @@ export function ModelViewer() {
             />
 
             <GizmoHelper alignment="bottom-right" margin={[84, 84]}>
-              <GizmoViewport axisColors={["#ef4444", "#22c55e", "#3b82f6"]} labelColor="#0f172a" />
+              <GizmoViewport axisColors={["#ef4444", "#22c55e", "#3b82f6"]} labelColor={isDark ? "#e2e8f0" : "#0f172a"} />
             </GizmoHelper>
           </Canvas>
         </div>
 
         {message ? (
-          <p className={`relative z-10 mt-3 text-xs ${status === "error" ? "text-red-600" : "text-slate"}`}>
+          <p className={`relative z-10 mt-3 text-xs ${status === "error" ? "text-danger" : "text-slate"}`}>
             {message}
           </p>
         ) : null}
       </div>
 
       <div className="space-y-4">
-        <div className="rounded-3xl border border-slate-200/70 bg-white p-5 shadow-soft">
+        <div className="rounded-3xl border p-5 shadow-soft" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
           <p className="text-sm font-semibold text-ink">Viewer Controls</p>
           <div className="mt-4 space-y-4">
             <div>
               <p className="text-xs uppercase tracking-[0.28em] text-slate/60">Model ID</p>
               <input
-                className="mt-2 w-full rounded-xl border border-slate/20 bg-white px-3 py-2 text-sm"
+                className="mt-2 w-full rounded-xl border px-3 py-2 text-sm text-ink"
+                style={{ borderColor: "var(--color-border)", background: "var(--color-surface-muted)" }}
                 value={modelId}
                 onChange={(event) => setModelId(event.target.value)}
               />
@@ -1119,12 +1129,12 @@ export function ModelViewer() {
             <div>
               <p className="text-xs uppercase tracking-[0.28em] text-slate/60">Camera Presets</p>
               <div className="mt-2 grid grid-cols-3 gap-2">
-                <button className="rounded-xl border border-slate-200 px-2 py-1.5 text-xs" onClick={() => setCameraView("top")}>Top</button>
-                <button className="rounded-xl border border-slate-200 px-2 py-1.5 text-xs" onClick={() => setCameraView("side")}>Side</button>
-                <button className="rounded-xl border border-slate-200 px-2 py-1.5 text-xs" onClick={() => setCameraView("oblique")}>Oblique</button>
-                <button className="rounded-xl border border-slate-200 px-2 py-1.5 text-xs" onClick={() => setCameraView("reset")}>Reset</button>
-                <button className="rounded-xl border border-slate-200 px-2 py-1.5 text-xs" onClick={() => setCameraView("focus")}>Focus</button>
-                <button className="rounded-xl border border-slate-200 px-2 py-1.5 text-xs" onClick={() => setShowAxes((prev) => !prev)}>
+                <button className="rounded-xl border px-2 py-1.5 text-xs text-ink" style={{ borderColor: "var(--color-border)", background: "var(--color-surface-muted)" }} onClick={() => setCameraView("top")}>Top</button>
+                <button className="rounded-xl border px-2 py-1.5 text-xs text-ink" style={{ borderColor: "var(--color-border)", background: "var(--color-surface-muted)" }} onClick={() => setCameraView("side")}>Side</button>
+                <button className="rounded-xl border px-2 py-1.5 text-xs text-ink" style={{ borderColor: "var(--color-border)", background: "var(--color-surface-muted)" }} onClick={() => setCameraView("oblique")}>Oblique</button>
+                <button className="rounded-xl border px-2 py-1.5 text-xs text-ink" style={{ borderColor: "var(--color-border)", background: "var(--color-surface-muted)" }} onClick={() => setCameraView("reset")}>Reset</button>
+                <button className="rounded-xl border px-2 py-1.5 text-xs text-ink" style={{ borderColor: "var(--color-border)", background: "var(--color-surface-muted)" }} onClick={() => setCameraView("focus")}>Focus</button>
+                <button className="rounded-xl border px-2 py-1.5 text-xs text-ink" style={{ borderColor: "var(--color-border)", background: "var(--color-surface-muted)" }} onClick={() => setShowAxes((prev) => !prev)}>
                   {showAxes ? "Hide Axes" : "Show Axes"}
                 </button>
               </div>
@@ -1134,7 +1144,7 @@ export function ModelViewer() {
                 Smoothing ({Math.round(smoothingLevel * 100)}%)
               </p>
               <input
-                className="mt-2 w-full accent-[#1f6feb]"
+                className="mt-2 w-full accent-accent"
                 type="range"
                 min={0}
                 max={1}
@@ -1146,7 +1156,8 @@ export function ModelViewer() {
             <div>
               <p className="text-xs uppercase tracking-[0.28em] text-slate/60">Rotation Axis</p>
               <select
-                className="mt-2 w-full rounded-xl border border-slate/20 bg-white px-3 py-2 text-sm"
+                className="mt-2 w-full rounded-xl border px-3 py-2 text-sm text-ink"
+                style={{ borderColor: "var(--color-border)", background: "var(--color-surface-muted)" }}
                 value={rotationAxis}
                 onChange={(event) => setRotationAxis(event.target.value as RotationAxis)}
               >
@@ -1161,7 +1172,7 @@ export function ModelViewer() {
                 Axis Speed ({rotationSpeed.toFixed(1)} rad/s)
               </p>
               <input
-                className="mt-2 w-full accent-[#1f6feb]"
+                className="mt-2 w-full accent-accent"
                 type="range"
                 min={0.1}
                 max={2.5}
@@ -1171,51 +1182,53 @@ export function ModelViewer() {
               />
             </div>
             <div className="grid grid-cols-2 gap-2 text-xs">
-              <button className="rounded-xl border border-slate-200 px-2 py-1.5" onClick={() => setPlaneAligned((prev) => !prev)}>
+              <button className="rounded-xl border px-2 py-1.5 text-ink" style={{ borderColor: "var(--color-border)", background: "var(--color-surface-muted)" }} onClick={() => setPlaneAligned((prev) => !prev)}>
                 {planeAligned ? "Plane Aligned" : "Vertical"}
               </button>
-              <button className="rounded-xl border border-slate-200 px-2 py-1.5" onClick={() => setLockAbovePlane((prev) => !prev)}>
+              <button className="rounded-xl border px-2 py-1.5 text-ink" style={{ borderColor: "var(--color-border)", background: "var(--color-surface-muted)" }} onClick={() => setLockAbovePlane((prev) => !prev)}>
                 {lockAbovePlane ? "Above-Plane Lock" : "Free Orbit"}
               </button>
             </div>
           </div>
         </div>
 
-        <div className="rounded-3xl border border-slate-200/70 bg-white p-5 shadow-soft">
+        <div className="rounded-3xl border p-5 shadow-soft" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
           <div className="flex items-center justify-between">
             <p className="text-sm font-semibold text-ink">Measurement Toolkit</p>
-            <button className="text-xs font-semibold text-[#1f6feb]" onClick={handleExportMeasurements}>Export CSV</button>
+            <button className="text-xs font-semibold text-accent" onClick={handleExportMeasurements}>Export CSV</button>
           </div>
           <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-            <button className={`rounded-xl border px-2 py-1.5 ${toolMode === "distance" ? "border-[#1f6feb] bg-[#e8f0ff]" : "border-slate-200"}`} onClick={() => { setToolMode("distance"); setDraftPoints([]); }}>Distance</button>
-            <button className={`rounded-xl border px-2 py-1.5 ${toolMode === "angle" ? "border-[#1f6feb] bg-[#e8f0ff]" : "border-slate-200"}`} onClick={() => { setToolMode("angle"); setDraftPoints([]); }}>Angle</button>
-            <button className="rounded-xl border border-slate-200 px-2 py-1.5" onClick={() => { setToolMode("none"); setDraftPoints([]); }}>Stop</button>
+            <button className={`rounded-xl border px-2 py-1.5 text-ink ${toolMode === "distance" ? "border-accent bg-accent/10" : ""}`} style={toolMode !== "distance" ? { borderColor: "var(--color-border)" } : undefined} onClick={() => { setToolMode("distance"); setDraftPoints([]); }}>Distance</button>
+            <button className={`rounded-xl border px-2 py-1.5 text-ink ${toolMode === "angle" ? "border-accent bg-accent/10" : ""}`} style={toolMode !== "angle" ? { borderColor: "var(--color-border)" } : undefined} onClick={() => { setToolMode("angle"); setDraftPoints([]); }}>Angle</button>
+            <button className="rounded-xl border px-2 py-1.5 text-ink" style={{ borderColor: "var(--color-border)" }} onClick={() => { setToolMode("none"); setDraftPoints([]); }}>Stop</button>
           </div>
-          <div className="mt-3 max-h-40 space-y-2 overflow-auto rounded-xl border border-slate-100 p-2">
+          <div className="mt-3 max-h-40 space-y-2 overflow-auto rounded-xl border p-2" style={{ borderColor: "var(--color-border)" }}>
             {measurements.length === 0 ? <p className="text-xs text-slate">No measurements yet.</p> : null}
             {measurements.map((measurement) => (
-              <div key={measurement.id} className="rounded-lg border border-slate-100 bg-slate-50 px-2 py-1 text-xs">
-                <p className="font-semibold text-slate-700">{measurement.label}</p>
-                <p className="text-[11px] text-slate-500">{new Date(measurement.createdAt).toLocaleString()}</p>
+              <div key={measurement.id} className="rounded-lg border px-2 py-1 text-xs" style={{ borderColor: "var(--color-border)", background: "var(--color-surface-muted)" }}>
+                <p className="font-semibold text-ink">{measurement.label}</p>
+                <p className="text-[11px] text-slate">{new Date(measurement.createdAt).toLocaleString()}</p>
               </div>
             ))}
           </div>
         </div>
 
-        <div className="rounded-3xl border border-slate-200/70 bg-white p-5 shadow-soft">
+        <div className="rounded-3xl border p-5 shadow-soft" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
           <div className="flex items-center justify-between gap-3">
             <p className="text-sm font-semibold text-ink">Annotation System</p>
-            <button className={`rounded-xl border px-3 py-1 text-xs ${toolMode === "annotate" ? "border-[#1f6feb] bg-[#e8f0ff]" : "border-slate-200"}`} onClick={() => { setToolMode("annotate"); setDraftPoints([]); }}>Pin Mode</button>
+            <button className={`rounded-xl border px-3 py-1 text-xs ${toolMode === "annotate" ? "border-accent bg-accent/10 text-accent" : "text-ink"}`} style={toolMode !== "annotate" ? { borderColor: "var(--color-border)" } : undefined} onClick={() => { setToolMode("annotate"); setDraftPoints([]); }}>Pin Mode</button>
           </div>
           <div className="mt-3 space-y-2 text-xs">
             <input
-              className="w-full rounded-xl border border-slate-200 px-3 py-2"
+              className="w-full rounded-xl border px-3 py-2 text-sm text-ink"
+              style={{ borderColor: "var(--color-border)", background: "var(--color-surface-muted)" }}
               placeholder="Annotation title"
               value={annotationTitle}
               onChange={(event) => setAnnotationTitle(event.target.value)}
             />
             <select
-              className="w-full rounded-xl border border-slate-200 px-3 py-2"
+              className="w-full rounded-xl border px-3 py-2 text-sm text-ink"
+              style={{ borderColor: "var(--color-border)", background: "var(--color-surface-muted)" }}
               value={annotationSeverity}
               onChange={(event) => setAnnotationSeverity(event.target.value as "low" | "medium" | "high" | "critical")}
             >
@@ -1225,7 +1238,8 @@ export function ModelViewer() {
               <option value="critical">Critical</option>
             </select>
             <textarea
-              className="w-full rounded-xl border border-slate-200 px-3 py-2"
+              className="w-full rounded-xl border px-3 py-2 text-sm text-ink"
+              style={{ borderColor: "var(--color-border)", background: "var(--color-surface-muted)" }}
               rows={3}
               placeholder="Comment or reply"
               value={annotationComment}
@@ -1233,44 +1247,44 @@ export function ModelViewer() {
             />
             <div className="flex gap-2">
               <button
-                className="rounded-xl bg-[#1f6feb] px-3 py-2 text-xs font-semibold text-white"
+                className="rounded-xl bg-gradient-to-r from-accent to-bio px-3 py-2 text-xs font-semibold text-white"
                 onClick={handleCreateAnnotation}
                 disabled={toolMode !== "annotate" || draftPoints.length === 0}
               >
                 Create Annotation
               </button>
-              <button className="rounded-xl border border-slate-200 px-3 py-2" onClick={handleAddReply} disabled={!selectedAnnotationId || !annotationComment.trim()}>
+              <button className="rounded-xl border px-3 py-2 text-xs text-ink" style={{ borderColor: "var(--color-border)" }} onClick={handleAddReply} disabled={!selectedAnnotationId || !annotationComment.trim()}>
                 Add Reply
               </button>
             </div>
-            <button className="rounded-xl border border-slate-200 px-3 py-2" onClick={handleCopyShare}>
+            <button className="rounded-xl border px-3 py-2 text-xs text-ink" style={{ borderColor: "var(--color-border)" }} onClick={handleCopyShare}>
               {shareCopied ? "Share Link Copied" : "Copy Share Link"}
             </button>
           </div>
 
-          <div className="mt-3 max-h-40 space-y-2 overflow-auto rounded-xl border border-slate-100 p-2">
+          <div className="mt-3 max-h-40 space-y-2 overflow-auto rounded-xl border p-2" style={{ borderColor: "var(--color-border)" }}>
             {annotations.map((annotation) => (
-              <div key={annotation.id} className={`rounded-lg border px-2 py-1 text-xs ${selectedAnnotationId === annotation.id ? "border-[#1f6feb] bg-[#e8f0ff]" : "border-slate-100 bg-white"}`}>
+              <div key={annotation.id} className={`rounded-lg border px-2 py-1 text-xs ${selectedAnnotationId === annotation.id ? "border-accent bg-accent/10" : ""}`} style={selectedAnnotationId !== annotation.id ? { borderColor: "var(--color-border)", background: "var(--color-surface)" } : undefined}>
                 <button className="w-full text-left" onClick={() => setSelectedAnnotationId(annotation.id)}>
-                  <p className="font-semibold text-slate-700">{annotation.title}</p>
-                  <p className="text-[11px] text-slate-500">{annotation.severity} • {annotation.status}</p>
+                  <p className="font-semibold text-ink">{annotation.title}</p>
+                  <p className="text-[11px] text-slate">{annotation.severity} • {annotation.status}</p>
                 </button>
                 {selectedAnnotationId === annotation.id ? (
                   <div className="mt-2 flex flex-wrap gap-2">
-                    <button className="rounded border border-slate-200 px-2 py-1" onClick={() => handleUpdateAnnotation(annotation.id, { status: "resolved" })}>Resolve</button>
-                    <button className="rounded border border-slate-200 px-2 py-1" onClick={() => handleUpdateAnnotation(annotation.id, { status: "in_review" })}>In Review</button>
-                    <button className="rounded border border-red-200 px-2 py-1 text-red-600" onClick={handleDeleteAnnotation}>Delete</button>
+                    <button className="rounded border px-2 py-1 text-ink" style={{ borderColor: "var(--color-border)" }} onClick={() => handleUpdateAnnotation(annotation.id, { status: "resolved" })}>Resolve</button>
+                    <button className="rounded border px-2 py-1 text-ink" style={{ borderColor: "var(--color-border)" }} onClick={() => handleUpdateAnnotation(annotation.id, { status: "in_review" })}>In Review</button>
+                    <button className="rounded border border-danger/30 px-2 py-1 text-danger" onClick={handleDeleteAnnotation}>Delete</button>
                   </div>
                 ) : null}
               </div>
             ))}
           </div>
           {selectedAnnotation ? (
-            <div className="mt-2 rounded-lg border border-slate-100 bg-slate-50 p-2 text-xs">
-              <p className="font-semibold text-slate-700">Thread</p>
+            <div className="mt-2 rounded-lg border p-2 text-xs" style={{ borderColor: "var(--color-border)", background: "var(--color-surface-muted)" }}>
+              <p className="font-semibold text-ink">Thread</p>
               <div className="mt-1 max-h-24 space-y-1 overflow-auto">
                 {selectedAnnotation.comments.map((comment) => (
-                  <p key={comment.id} className="text-[11px] text-slate-600">
+                  <p key={comment.id} className="text-[11px] text-slate">
                     <span className="font-semibold">{comment.author}:</span> {comment.message}
                   </p>
                 ))}
@@ -1279,7 +1293,7 @@ export function ModelViewer() {
           ) : null}
         </div>
 
-        <div className="rounded-3xl border border-slate-200/70 bg-white p-5 shadow-soft">
+        <div className="rounded-3xl border p-5 shadow-soft" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
           <div className="flex items-center justify-between gap-3">
             <p className="text-sm font-semibold text-ink">Comparison Mode</p>
             <label className="flex items-center gap-2 text-xs text-slate">
@@ -1289,12 +1303,13 @@ export function ModelViewer() {
           </div>
           <div className="mt-3 grid grid-cols-[1fr,auto] gap-2">
             <input
-              className="rounded-xl border border-slate-200 px-3 py-2 text-xs"
+              className="rounded-xl border px-3 py-2 text-xs text-ink"
+              style={{ borderColor: "var(--color-border)", background: "var(--color-surface-muted)" }}
               placeholder="Post-op model ID"
               value={compareModelId}
               onChange={(event) => setCompareModelId(event.target.value)}
             />
-            <button className="rounded-xl bg-[#1f6feb] px-3 py-2 text-xs font-semibold text-white" onClick={handleLoadCompare}>Load</button>
+            <button className="rounded-xl bg-gradient-to-r from-accent to-bio px-3 py-2 text-xs font-semibold text-white" onClick={handleLoadCompare}>Load</button>
           </div>
           {compareSummary ? (
             <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
@@ -1309,10 +1324,10 @@ export function ModelViewer() {
           )}
         </div>
 
-        <div className="rounded-3xl border border-slate-200/70 bg-white p-5 shadow-soft">
+        <div className="rounded-3xl border p-5 shadow-soft" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
           <div className="flex items-center justify-between gap-3">
             <p className="text-sm font-semibold text-ink">Confidence Overlay</p>
-            <span className="rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold text-slate">
+            <span className="rounded-full px-3 py-1 text-[11px] font-semibold text-slate" style={{ background: "var(--color-surface-muted)" }}>
               {overallPct}% overall
             </span>
           </div>
@@ -1328,7 +1343,7 @@ export function ModelViewer() {
                 </div>
                 <span className="font-semibold text-ink">{observedPct}%</span>
               </div>
-              <div className="h-2 rounded-full bg-slate-100">
+              <div className="h-2 rounded-full" style={{ background: "var(--color-surface-muted)" }}>
                 <div className="h-2 rounded-full" style={{ width: `${observedPct}%`, background: CONFIDENCE_COLORS.observed }} />
               </div>
             </div>
@@ -1340,7 +1355,7 @@ export function ModelViewer() {
                 </div>
                 <span className="font-semibold text-ink">{adjustedPct}%</span>
               </div>
-              <div className="h-2 rounded-full bg-slate-100">
+              <div className="h-2 rounded-full" style={{ background: "var(--color-surface-muted)" }}>
                 <div className="h-2 rounded-full" style={{ width: `${adjustedPct}%`, background: CONFIDENCE_COLORS.adjusted }} />
               </div>
             </div>
@@ -1352,18 +1367,18 @@ export function ModelViewer() {
                 </div>
                 <span className="font-semibold text-ink">{inferredPct}%</span>
               </div>
-              <div className="h-2 rounded-full bg-slate-100">
+              <div className="h-2 rounded-full" style={{ background: "var(--color-surface-muted)" }}>
                 <div className="h-2 rounded-full" style={{ width: `${inferredPct}%`, background: CONFIDENCE_COLORS.inferred }} />
               </div>
             </div>
           </div>
           <p className="mt-3 text-[11px] text-slate/70">Confidence mode: {confidenceReport?.mode ?? "n/a"}</p>
-          <p className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-700">
+          <p className="mt-3 rounded-xl border px-3 py-2 text-[11px] text-slate" style={{ borderColor: "var(--color-border)", background: "var(--color-surface-muted)" }}>
             Keyboard shortcuts: 1 top, 2 side, 3 oblique, R reset, F focus, M distance, G angle, A annotate, Esc stop tool.
           </p>
         </div>
 
-        <div className="rounded-3xl border border-red-100 bg-red-50 p-4 text-xs text-red-700">
+        <div className="rounded-3xl border border-danger/20 bg-danger/5 p-4 text-xs text-danger">
           Not diagnostic: this viewer is for planning and education support only.
         </div>
       </div>
