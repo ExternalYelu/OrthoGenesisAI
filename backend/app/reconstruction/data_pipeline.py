@@ -36,17 +36,24 @@ logger = logging.getLogger(__name__)
 def load_nifti_volume(path: str | Path, target_size: int = 64) -> np.ndarray:
     """Load a NIfTI CT volume and normalise to [0, 1].
 
-    Requires nibabel (optional dependency, only needed for training).
+    Detects whether the data is raw HU values or already preprocessed
+    (values in [0, 1]) and only applies windowing to raw HU data.
     """
     import nibabel as nib
 
     nii = nib.load(str(path))
     data = np.asarray(nii.dataobj, dtype=np.float32)
 
-    # Windowing: typical bone window [−200, 1500] HU
-    hu_min, hu_max = -200.0, 1500.0
-    data = np.clip(data, hu_min, hu_max)
-    data = (data - hu_min) / (hu_max - hu_min)
+    # Detect if already preprocessed: raw HU typically has values < -200 or > 100
+    data_min, data_max = float(data.min()), float(data.max())
+    if data_min >= -0.01 and data_max <= 1.01:
+        # Already normalised to [0, 1] — skip HU windowing
+        data = np.clip(data, 0.0, 1.0)
+    else:
+        # Raw HU values — apply bone window [-200, 1500]
+        hu_min, hu_max = -200.0, 1500.0
+        data = np.clip(data, hu_min, hu_max)
+        data = (data - hu_min) / (hu_max - hu_min)
 
     # Resize to target cubic resolution
     data = _resize_volume(data, target_size)
@@ -140,11 +147,13 @@ def sample_occupancy_points(
     surface_ratio: float = 0.5,
     threshold: float = 0.3,
     rng: Optional[np.random.RandomState] = None,
+    balanced: bool = True,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Sample 3D points and their occupancy labels from a volume.
 
-    Uses importance sampling: half the points near the surface (where the
-    model needs to learn the boundary) and half uniformly distributed.
+    When balanced=True (default), ensures ~50% positive and ~50% negative
+    labels to prevent the model from learning to predict all-zeros on
+    sparse volumes (real CT data is typically only 1-3% bone).
 
     Returns:
         points: (n_points, 3) float32 in [-1, 1]
@@ -156,13 +165,55 @@ def sample_occupancy_points(
     resolution = volume.shape[0]
     binary = (volume > threshold).astype(np.float32)
 
+    occupied = np.argwhere(binary > 0.5)
+    empty = np.argwhere(binary < 0.5)
+
+    if balanced and len(occupied) > 0 and len(empty) > 0:
+        # Balanced sampling: half positive, half negative
+        n_pos = n_points // 2
+        n_neg = n_points - n_pos
+
+        # Positive points: bone voxels + jitter
+        pos_idx = rng.choice(len(occupied), size=n_pos, replace=True)
+        pos_voxels = occupied[pos_idx].astype(np.float32)
+        pos_pts = pos_voxels / (resolution - 1) * 2 - 1
+        # Small jitter to stay mostly inside bone
+        pos_pts += rng.randn(n_pos, 3).astype(np.float32) * (1.0 / resolution)
+        pos_pts = np.clip(pos_pts, -1, 1)
+
+        # Negative points: mix of near-surface negatives and uniform
+        n_near = n_neg // 2
+        n_far = n_neg - n_near
+
+        # Near-surface negatives (just outside bone boundary)
+        near_idx = rng.choice(len(occupied), size=n_near, replace=True)
+        near_voxels = occupied[near_idx].astype(np.float32)
+        near_pts = near_voxels / (resolution - 1) * 2 - 1
+        # Larger jitter to push outside bone
+        near_pts += rng.randn(n_near, 3).astype(np.float32) * (4.0 / resolution)
+        near_pts = np.clip(near_pts, -1, 1)
+
+        # Far negatives (uniform random, mostly empty space)
+        far_pts = rng.uniform(-1, 1, (n_far, 3)).astype(np.float32)
+
+        neg_pts = np.concatenate([near_pts, far_pts], axis=0)
+
+        # Look up actual labels for all points
+        all_pts = np.concatenate([pos_pts, neg_pts], axis=0)
+        all_voxels = ((all_pts + 1) / 2 * (resolution - 1)).astype(np.int32)
+        all_voxels = np.clip(all_voxels, 0, resolution - 1)
+        all_labels = binary[all_voxels[:, 0], all_voxels[:, 1], all_voxels[:, 2]]
+
+        perm = rng.permutation(len(all_pts))
+        return all_pts[perm], all_labels[perm]
+
+    # Fallback: original surface-biased sampling
     n_surface = int(n_points * surface_ratio)
     n_uniform = n_points - n_surface
 
     points_list = []
     labels_list = []
 
-    # Uniform random points
     if n_uniform > 0:
         uniform_pts = rng.uniform(-1, 1, (n_uniform, 3)).astype(np.float32)
         uniform_voxels = ((uniform_pts + 1) / 2 * (resolution - 1)).astype(np.int32)
@@ -173,34 +224,26 @@ def sample_occupancy_points(
         points_list.append(uniform_pts)
         labels_list.append(uniform_labels)
 
-    # Surface-biased points: find occupied voxels, add Gaussian noise
-    if n_surface > 0:
-        occupied = np.argwhere(binary > 0.5)
-        if len(occupied) > 0:
-            indices = rng.choice(len(occupied), size=n_surface, replace=True)
-            chosen = occupied[indices].astype(np.float32)
-            # Convert to [-1, 1] and add noise
-            chosen_norm = chosen / (resolution - 1) * 2 - 1
-            noise = rng.randn(n_surface, 3).astype(np.float32) * (2.0 / resolution * 3)
-            surface_pts = np.clip(chosen_norm + noise, -1, 1)
-            # Look up labels
-            surface_voxels = ((surface_pts + 1) / 2 * (resolution - 1)).astype(np.int32)
-            surface_voxels = np.clip(surface_voxels, 0, resolution - 1)
-            surface_labels = binary[
-                surface_voxels[:, 0], surface_voxels[:, 1], surface_voxels[:, 2]
-            ]
-            points_list.append(surface_pts)
-            labels_list.append(surface_labels)
-        else:
-            # Fallback to uniform if volume is empty
-            extra = rng.uniform(-1, 1, (n_surface, 3)).astype(np.float32)
-            points_list.append(extra)
-            labels_list.append(np.zeros(n_surface, dtype=np.float32))
+    if n_surface > 0 and len(occupied) > 0:
+        indices = rng.choice(len(occupied), size=n_surface, replace=True)
+        chosen = occupied[indices].astype(np.float32)
+        chosen_norm = chosen / (resolution - 1) * 2 - 1
+        noise = rng.randn(n_surface, 3).astype(np.float32) * (2.0 / resolution * 3)
+        surface_pts = np.clip(chosen_norm + noise, -1, 1)
+        surface_voxels = ((surface_pts + 1) / 2 * (resolution - 1)).astype(np.int32)
+        surface_voxels = np.clip(surface_voxels, 0, resolution - 1)
+        surface_labels = binary[
+            surface_voxels[:, 0], surface_voxels[:, 1], surface_voxels[:, 2]
+        ]
+        points_list.append(surface_pts)
+        labels_list.append(surface_labels)
+    elif n_surface > 0:
+        extra = rng.uniform(-1, 1, (n_surface, 3)).astype(np.float32)
+        points_list.append(extra)
+        labels_list.append(np.zeros(n_surface, dtype=np.float32))
 
     points = np.concatenate(points_list, axis=0)
     labels = np.concatenate(labels_list, axis=0)
-
-    # Shuffle
     perm = rng.permutation(len(points))
     return points[perm], labels[perm]
 
@@ -230,12 +273,14 @@ class BoneReconstructionDataset(Dataset):
         n_points: int = 4096,
         views: list[str] | None = None,
         augment: bool = True,
+        bone_threshold: float = 0.15,
     ) -> None:
         self.volume_resolution = volume_resolution
         self.image_resolution = image_resolution
         self.n_points = n_points
         self.views = views or ["ap", "lateral", "oblique"]
         self.augment = augment
+        self.bone_threshold = bone_threshold
 
         self.volumes: list[np.ndarray] = []
 
@@ -288,9 +333,10 @@ class BoneReconstructionDataset(Dataset):
         for vname, img in drr_images.items():
             view_tensors[vname] = torch.from_numpy(img).float().unsqueeze(0)
 
-        # Sample occupancy points
+        # Sample occupancy points with balanced sampling
         points, labels = sample_occupancy_points(
-            volume, self.n_points, surface_ratio=0.5, threshold=0.3
+            volume, self.n_points, surface_ratio=0.5,
+            threshold=self.bone_threshold, balanced=True,
         )
 
         return {

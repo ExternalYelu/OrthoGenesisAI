@@ -40,6 +40,7 @@ class HeightmapModel:
         return result
 
 
+
 @dataclass
 class ImplicitFieldModel:
     """Neural implicit field model for learned multi-view 3D reconstruction.
@@ -119,7 +120,7 @@ class ImplicitFieldModel:
             occupancy = self._model.predict_grid(
                 view_tensors, resolution=self.grid_resolution
             )
-
+ 
         prob = occupancy.numpy()
 
         # Marching cubes to extract mesh
@@ -170,8 +171,10 @@ class ImplicitFieldModel:
                   f"{len(verts)} verts, {len(faces)} faces, "
                   f"confidence={confidence:.2f}",
             confidence_report=report,
-            pipeline_version=self.pipeline_version,
+            pipeline_version=self.pipeline_version, 
         )
+
+        return Reconstruct
 
     @staticmethod
     def _build_glb(verts: np.ndarray, faces: np.ndarray, normals: np.ndarray) -> bytes:
