@@ -37,7 +37,6 @@ def save_model(data: bytes, model_id: str | None = None, ext: str = "glb") -> st
     path.write_bytes(data)
     return key
 
-
 def save_export(data: bytes, model_id: str, ext: str) -> str:
     ensure_dirs()
     key = f"exports/{model_id}.{ext}"

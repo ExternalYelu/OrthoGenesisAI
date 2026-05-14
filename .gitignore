@@ -53,3 +53,9 @@ data/demo_xrays/
 *.glb
 *.stl
 *.obj
+
+# CT dataset volumes (large, regenerable via setup_ctpelvic1k.py)
+backend/data/ct_processed/
+backend/data/ct_volumes/
+backend/data/models/
+backend/data/orthogenesis.db
