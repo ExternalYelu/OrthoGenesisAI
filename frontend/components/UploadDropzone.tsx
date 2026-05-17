@@ -529,11 +529,11 @@ export function UploadDropzone() {
                       <img
                         src={quality.previewUrl}
                         alt={`${slot} preview`}
-                        className="h-20 w-full rounded-lg border object-cover"
+                        className="max-h-80 w-full rounded-lg border bg-black object-contain"
                         style={{ borderColor: "var(--color-border)" }}
                       />
                     ) : (
-                      <div className="flex h-20 items-center justify-center rounded-lg border text-[11px] text-slate" style={{ borderColor: "var(--color-border)" }}>
+                      <div className="flex h-40 items-center justify-center rounded-lg border text-[11px] text-slate" style={{ borderColor: "var(--color-border)" }}>
                         DICOM selected
                       </div>
                     )}

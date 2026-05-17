@@ -66,6 +66,17 @@ type ComparisonSummary = {
   depthDeltaPct: number;
 };
 
+type SliceAxis = "x" | "y" | "z";
+
+type XrayMarker = {
+  id: number;
+  x2d: { x: number; y: number };
+  point3d: Point3 | null;
+  color: string;
+};
+
+const SYNC_MARKER_COLORS = ["#ef4444", "#22c55e", "#3b82f6", "#f59e0b", "#a855f7", "#06b6d4"];
+
 const CONFIDENCE_COLORS = {
   observed: "#2f7ae5",
   adjusted: "#f59e0b",
@@ -253,6 +264,104 @@ function buildDifferenceColors(reference: BufferGeometry, target: BufferGeometry
   return colors;
 }
 
+function buildExplodeShards(
+  mesh: Mesh,
+  sceneCenter: THREE.Vector3
+): Array<{ mesh: Mesh; dir: THREE.Vector3 }> {
+  const geo = mesh.geometry;
+  const pos = geo.attributes.position;
+  if (!pos) return [];
+
+  const indices = getIndexArray(geo, pos.count);
+  if (indices.length < 3) return [];
+
+  const invMatrix = new THREE.Matrix4().copy(mesh.matrixWorld).invert();
+  const localCenter = sceneCenter.clone().applyMatrix4(invMatrix);
+
+  // 6 buckets: +x, -x, +y, -y, +z, -z
+  const buckets: number[][] = [[], [], [], [], [], []];
+  const fa = new THREE.Vector3();
+  const fb = new THREE.Vector3();
+  const fc = new THREE.Vector3();
+  const faceCenter = new THREE.Vector3();
+
+  for (let i = 0; i < indices.length; i += 3) {
+    fa.fromBufferAttribute(pos, indices[i]);
+    fb.fromBufferAttribute(pos, indices[i + 1]);
+    fc.fromBufferAttribute(pos, indices[i + 2]);
+    faceCenter.set(
+      (fa.x + fb.x + fc.x) / 3,
+      (fa.y + fb.y + fc.y) / 3,
+      (fa.z + fb.z + fc.z) / 3
+    );
+    const d = faceCenter.clone().sub(localCenter);
+    const ax = Math.abs(d.x);
+    const ay = Math.abs(d.y);
+    const az = Math.abs(d.z);
+    let bucket: number;
+    if (ax >= ay && ax >= az) bucket = d.x >= 0 ? 0 : 1;
+    else if (ay >= ax && ay >= az) bucket = d.y >= 0 ? 2 : 3;
+    else bucket = d.z >= 0 ? 4 : 5;
+    buckets[bucket].push(indices[i], indices[i + 1], indices[i + 2]);
+  }
+
+  const BUCKET_DIRS = [
+    new THREE.Vector3(1, 0, 0),
+    new THREE.Vector3(-1, 0, 0),
+    new THREE.Vector3(0, 1, 0),
+    new THREE.Vector3(0, -1, 0),
+    new THREE.Vector3(0, 0, 1),
+    new THREE.Vector3(0, 0, -1)
+  ];
+
+  const normAttr = geo.attributes.normal;
+  const baseMat = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+  const result: Array<{ mesh: Mesh; dir: THREE.Vector3 }> = [];
+
+  for (let b = 0; b < 6; b++) {
+    const faceIdxs = buckets[b];
+    if (faceIdxs.length === 0) continue;
+
+    const vtxMap = new Map<number, number>();
+    const newIdxs: number[] = [];
+    for (const origIdx of faceIdxs) {
+      if (!vtxMap.has(origIdx)) vtxMap.set(origIdx, vtxMap.size);
+      newIdxs.push(vtxMap.get(origIdx)!);
+    }
+
+    const count = vtxMap.size;
+    const newPos = new Float32Array(count * 3);
+    const newNorm = new Float32Array(count * 3);
+
+    for (const [origIdx, newIdx] of vtxMap) {
+      newPos[newIdx * 3] = pos.getX(origIdx);
+      newPos[newIdx * 3 + 1] = pos.getY(origIdx);
+      newPos[newIdx * 3 + 2] = pos.getZ(origIdx);
+      if (normAttr) {
+        newNorm[newIdx * 3] = normAttr.getX(origIdx);
+        newNorm[newIdx * 3 + 1] = normAttr.getY(origIdx);
+        newNorm[newIdx * 3 + 2] = normAttr.getZ(origIdx);
+      }
+    }
+
+    const newGeo = new THREE.BufferGeometry();
+    newGeo.setAttribute("position", new THREE.Float32BufferAttribute(newPos, 3));
+    if (normAttr) newGeo.setAttribute("normal", new THREE.Float32BufferAttribute(newNorm, 3));
+    newGeo.setIndex(newIdxs);
+    if (!normAttr) newGeo.computeVertexNormals();
+
+    const shard = new THREE.Mesh(newGeo, (baseMat as Material).clone());
+    shard.castShadow = true;
+    shard.receiveShadow = true;
+    shard.position.copy(mesh.position);
+    shard.rotation.copy(mesh.rotation);
+    shard.scale.copy(mesh.scale);
+    result.push({ mesh: shard as Mesh, dir: BUCKET_DIRS[b] });
+  }
+
+  return result;
+}
+
 function prepareScene(
   scene: Object3D,
   transparent: boolean,
@@ -352,7 +461,9 @@ function SceneModel({
   onPick,
   offset = 0,
   heatmapReference,
-  heatmapEnabled = false
+  heatmapEnabled = false,
+  clippingPlanes = [],
+  explodeAmount = 0
 }: {
   url: string;
   transparent: boolean;
@@ -368,6 +479,8 @@ function SceneModel({
   offset?: number;
   heatmapReference?: BufferGeometry | null;
   heatmapEnabled?: boolean;
+  clippingPlanes?: THREE.Plane[];
+  explodeAmount?: number;
 }) {
   const { scene } = useGLTF(url);
 
@@ -393,6 +506,74 @@ function SceneModel({
     ]
   );
 
+  // Build explode groups once per processedScene; cheap position updates driven by explodeAmount
+  type ExplodeEntry = { mesh: Mesh; basePos: THREE.Vector3; dir: THREE.Vector3; magnitude: number };
+  const { sceneToRender, explodeEntries } = useMemo((): { sceneToRender: Object3D; explodeEntries: ExplodeEntry[] } => {
+    const meshes: Mesh[] = [];
+    processedScene.traverse((c) => { if ((c as Mesh).isMesh) meshes.push(c as Mesh); });
+
+    const box = new THREE.Box3().setFromObject(processedScene);
+    const center = new THREE.Vector3();
+    box.getCenter(center);
+    const magnitude = box.min.distanceTo(box.max) * 0.6;
+
+    if (meshes.length > 1) {
+      const entries: ExplodeEntry[] = meshes.map((mesh) => {
+        const mbox = new THREE.Box3().setFromObject(mesh);
+        const mc = new THREE.Vector3();
+        mbox.getCenter(mc);
+        let dir = mc.clone().sub(center);
+        if (dir.length() < 0.001) dir.set(0, 1, 0);
+        else dir.normalize();
+        return { mesh, basePos: mesh.position.clone(), dir, magnitude };
+      });
+      return { sceneToRender: processedScene, explodeEntries: entries };
+    }
+
+    if (meshes.length === 1) {
+      try {
+        const shards = buildExplodeShards(meshes[0], center);
+        if (shards.length > 1) {
+          const shardGroup = new THREE.Group();
+          shards.forEach(({ mesh: shard }) => shardGroup.add(shard));
+          const entries: ExplodeEntry[] = shards.map(({ mesh: shard, dir }) => ({
+            mesh: shard, basePos: shard.position.clone(), dir, magnitude
+          }));
+          return { sceneToRender: shardGroup, explodeEntries: entries };
+        }
+      } catch {
+        // fall through to fallback
+      }
+      const mesh = meshes[0];
+      return {
+        sceneToRender: processedScene,
+        explodeEntries: [{ mesh, basePos: mesh.position.clone(), dir: new THREE.Vector3(0, 1, 0), magnitude }]
+      };
+    }
+
+    return { sceneToRender: processedScene, explodeEntries: [] };
+  }, [processedScene]);
+
+  // Apply clipping planes to materials without re-triggering heavy processing
+  useEffect(() => {
+    sceneToRender.traverse((child) => {
+      const mesh = child as Mesh;
+      if (!mesh.isMesh || !mesh.material) return;
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      mats.forEach((mat) => {
+        (mat as THREE.MeshStandardMaterial).clippingPlanes = clippingPlanes;
+        (mat as THREE.MeshStandardMaterial).needsUpdate = true;
+      });
+    });
+  }, [sceneToRender, clippingPlanes]);
+
+  // Apply explode offsets
+  useEffect(() => {
+    for (const { mesh, basePos, dir, magnitude } of explodeEntries) {
+      mesh.position.copy(basePos).addScaledVector(dir, explodeAmount * magnitude);
+    }
+  }, [explodeEntries, explodeAmount]);
+
   useEffect(() => {
     const box = new THREE.Box3().setFromObject(processedScene);
     const sphere = new THREE.Sphere();
@@ -404,7 +585,7 @@ function SceneModel({
   return (
     <Bounds fit clip observe margin={1.15}>
       <RotatingObject
-        object={processedScene}
+        object={sceneToRender}
         axis={rotationAxis}
         speed={rotationSpeed}
         planeAligned={planeAligned}
@@ -472,6 +653,38 @@ function AnnotationPins({
           </Html>
         </group>
       ))}
+    </>
+  );
+}
+
+function SyncMarkers3D({
+  markers,
+  pendingPoint3d
+}: {
+  markers: XrayMarker[];
+  pendingPoint3d?: Point3 | null;
+}) {
+  return (
+    <>
+      {markers.filter((m) => m.point3d !== null).map((marker, i) => (
+        <group key={marker.id} position={marker.point3d!}>
+          <mesh>
+            <sphereGeometry args={[3, 16, 16]} />
+            <meshStandardMaterial color={marker.color} />
+          </mesh>
+          <Html distanceFactor={20} position={[0, 5, 0]}>
+            <div className="rounded-md px-1.5 py-0.5 text-[10px] font-bold text-white shadow" style={{ background: marker.color }}>
+              #{i + 1}
+            </div>
+          </Html>
+        </group>
+      ))}
+      {pendingPoint3d ? (
+        <mesh position={pendingPoint3d}>
+          <sphereGeometry args={[3, 16, 16]} />
+          <meshStandardMaterial color="#eab308" />
+        </mesh>
+      ) : null}
     </>
   );
 }
@@ -627,10 +840,26 @@ export function ModelViewer() {
   const [differenceHeatmap, setDifferenceHeatmap] = useState(true);
   const [shareCopied, setShareCopied] = useState(false);
 
+  // Feature 2 – Cross-section
+  const [sliceEnabled, setSliceEnabled] = useState(false);
+  const [sliceAxis, setSliceAxis] = useState<SliceAxis>("y");
+  const [slicePosition, setSlicePosition] = useState(0);
+  const [sliceFlip, setSliceFlip] = useState(false);
+
+  // Feature 3 – Explode
+  const [explodeAmount, setExplodeAmount] = useState(0);
+
+  // Feature 4 – 2D↔3D sync
+  const [xrayImageUrl, setXrayImageUrl] = useState<string | null>(null);
+  const [xrayMarkers, setXrayMarkers] = useState<XrayMarker[]>([]);
+  const [syncPickMode, setSyncPickMode] = useState(false);
+  const [pendingMarker, setPendingMarker] = useState<{ x2d?: { x: number; y: number }; point3d?: Point3 } | null>(null);
+
   const viewerRef = useRef<HTMLDivElement>(null);
   const controlsRef = useRef<any>(null);
   const objectUrlRef = useRef<string | null>(null);
   const compareObjectUrlRef = useRef<string | null>(null);
+  const xrayObjectUrlRef = useRef<string | null>(null);
 
   const selectedAnnotation = annotations.find((item) => item.id === selectedAnnotationId) || null;
 
@@ -644,6 +873,7 @@ export function ModelViewer() {
     return () => {
       if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
       if (compareObjectUrlRef.current) URL.revokeObjectURL(compareObjectUrlRef.current);
+      if (xrayObjectUrlRef.current) URL.revokeObjectURL(xrayObjectUrlRef.current);
     };
   }, []);
 
@@ -785,8 +1015,62 @@ export function ModelViewer() {
     setMeasurements((prev) => [measurement, ...prev]);
   }, []);
 
+  const slicePlane = useMemo(() => {
+    const normal = new THREE.Vector3(
+      sliceAxis === "x" ? (sliceFlip ? -1 : 1) : 0,
+      sliceAxis === "y" ? (sliceFlip ? -1 : 1) : 0,
+      sliceAxis === "z" ? (sliceFlip ? -1 : 1) : 0
+    );
+    return new THREE.Plane(normal, slicePosition);
+  }, [sliceAxis, slicePosition, sliceFlip]);
+
+  const handleXrayUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (xrayObjectUrlRef.current) URL.revokeObjectURL(xrayObjectUrlRef.current);
+    const url = URL.createObjectURL(file);
+    xrayObjectUrlRef.current = url;
+    setXrayImageUrl(url);
+  };
+
+  const handleSyncPick3D = useCallback((point: Point3) => {
+    if (pendingMarker?.x2d) {
+      const newMarker: XrayMarker = {
+        id: Date.now(),
+        x2d: pendingMarker.x2d,
+        point3d: point,
+        color: SYNC_MARKER_COLORS[xrayMarkers.length % SYNC_MARKER_COLORS.length]
+      };
+      setXrayMarkers((prev) => [...prev, newMarker]);
+      setPendingMarker(null);
+    } else {
+      setPendingMarker({ point3d: point });
+    }
+  }, [pendingMarker, xrayMarkers.length]);
+
+  const handleSyncPick2D = useCallback((x: number, y: number) => {
+    if (pendingMarker?.point3d) {
+      const newMarker: XrayMarker = {
+        id: Date.now(),
+        x2d: { x, y },
+        point3d: pendingMarker.point3d,
+        color: SYNC_MARKER_COLORS[xrayMarkers.length % SYNC_MARKER_COLORS.length]
+      };
+      setXrayMarkers((prev) => [...prev, newMarker]);
+      setPendingMarker(null);
+    } else {
+      setPendingMarker({ x2d: { x, y } });
+    }
+  }, [pendingMarker, xrayMarkers.length]);
+
   const handlePointPick = (point: Point3) => {
     setSelectedPoint(point);
+
+    // Feature 4: route to sync handler when sync mode active
+    if (syncPickMode) {
+      handleSyncPick3D(point);
+      return;
+    }
 
     if (toolMode === "none") return;
 
@@ -1013,7 +1297,7 @@ export function ModelViewer() {
               {isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
             </button>
             <button
-              className="rounded-full bg-gradient-to-r from-accent to-bio px-4 py-2 text-xs font-semibold text-white shadow-lg"
+              className="rounded-full bg-accent px-4 py-2 text-xs font-semibold text-white shadow-lg transition-colors hover:bg-accent/90"
               onClick={handleLoad}
             >
               {status === "loading" ? "Loading..." : "Load Model"}
@@ -1022,13 +1306,14 @@ export function ModelViewer() {
         </div>
 
         <div className={`${isFullscreen ? "h-[calc(100vh-92px)]" : "h-[620px]"} relative rounded-2xl border`} style={{ borderColor: "var(--color-border)", background: isDark ? "#1a1e2e" : "#edf1f7" }}>
-          <Canvas shadows camera={{ position: [250, 180, 220], fov: 36 }}>
+          <Canvas shadows camera={{ position: [250, 180, 220], fov: 36 }} onCreated={({ gl }) => { gl.localClippingEnabled = true; }}>
             <color attach="background" args={[isDark ? "#1a1e2e" : "#edf1f7"]} />
             <ambientLight intensity={isDark ? 0.5 : 0.72} />
             <hemisphereLight args={[isDark ? "#2a3050" : "#f8fbff", isDark ? "#0d1117" : "#c8d3e4", isDark ? 0.35 : 0.55]} />
-            <directionalLight castShadow position={[260, 340, 280]} intensity={isDark ? 2.8 : 2.1} shadow-mapSize-width={2048} shadow-mapSize-height={2048} />
+            <directionalLight castShadow position={[260, 340, 280]} intensity={isDark ? 2.8 : 2.1} shadow-mapSize-width={2048} shadow-mapSize-height={2048} shadow-bias={-0.0005} shadow-radius={4} />
             <directionalLight position={[-220, 150, -240]} intensity={isDark ? 1.4 : 1.0} />
-            <Environment preset="studio" />
+            <directionalLight position={[0, 250, -380]} intensity={isDark ? 1.8 : 1.2} color="#cfe3ff" />
+            <Environment preset="city" />
 
             <mesh receiveShadow rotation={[-Math.PI / 2, 0, 0]} position={[0, -9.5, 0]}>
               <planeGeometry args={[1600, 1600]} />
@@ -1064,6 +1349,8 @@ export function ModelViewer() {
                 onBounds={setBoundsSphere}
                 onMetrics={setSceneMetrics}
                 onPick={handlePointPick}
+                clippingPlanes={sliceEnabled ? [slicePlane] : []}
+                explodeAmount={explodeAmount}
               />
             ) : null}
 
@@ -1082,9 +1369,20 @@ export function ModelViewer() {
                 onSelect={setSelectedAnnotationId}
               />
             ) : null}
+            {!compareMode ? <SyncMarkers3D markers={xrayMarkers} pendingPoint3d={pendingMarker?.point3d} /> : null}
+
+            {sliceEnabled ? (
+              <mesh
+                position={sliceAxis === "x" ? [slicePosition, 0, 0] : sliceAxis === "y" ? [0, slicePosition, 0] : [0, 0, slicePosition]}
+                rotation={sliceAxis === "x" ? [0, 0, Math.PI / 2] : sliceAxis === "z" ? [Math.PI / 2, 0, 0] : [0, 0, 0]}
+              >
+                <planeGeometry args={[200, 200]} />
+                <meshBasicMaterial color="#2563eb" opacity={0.12} transparent={true} side={THREE.DoubleSide} />
+              </mesh>
+            ) : null}
 
             {showAxes ? <axesHelper args={[60]} /> : null}
-            <ContactShadows position={[0, -9.35, 0]} opacity={0.35} scale={420} blur={1.4} far={220} />
+            <ContactShadows position={[0, -9.35, 0]} opacity={0.5} scale={480} blur={2.2} far={220} />
 
             <OrbitControls
               ref={controlsRef}
@@ -1154,6 +1452,29 @@ export function ModelViewer() {
               />
             </div>
             <div>
+              <p className="text-xs uppercase tracking-[0.28em] text-slate/60">
+                Explode ({Math.round(explodeAmount * 100)}%)
+              </p>
+              <input
+                className="mt-2 w-full accent-accent"
+                type="range"
+                min={0}
+                max={1}
+                step={0.01}
+                value={explodeAmount}
+                onChange={(event) => setExplodeAmount(Number(event.target.value))}
+              />
+              {explodeAmount > 0 ? (
+                <button
+                  className="mt-1.5 rounded-xl border px-2 py-1 text-xs text-ink"
+                  style={{ borderColor: "var(--color-border)", background: "var(--color-surface-muted)" }}
+                  onClick={() => setExplodeAmount(0)}
+                >
+                  Reset Explode
+                </button>
+              ) : null}
+            </div>
+            <div>
               <p className="text-xs uppercase tracking-[0.28em] text-slate/60">Rotation Axis</p>
               <select
                 className="mt-2 w-full rounded-xl border px-3 py-2 text-sm text-ink"
@@ -1189,6 +1510,56 @@ export function ModelViewer() {
                 {lockAbovePlane ? "Above-Plane Lock" : "Free Orbit"}
               </button>
             </div>
+          </div>
+        </div>
+
+        <div className="rounded-3xl border p-5 shadow-soft" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
+          <p className="text-sm font-semibold text-ink">Cross-Section</p>
+          <div className="mt-4 space-y-3">
+            <label className="flex items-center gap-2 text-xs text-ink cursor-pointer">
+              <input type="checkbox" checked={sliceEnabled} onChange={(e) => setSliceEnabled(e.target.checked)} />
+              Enable slice
+            </label>
+            {sliceEnabled ? (
+              <>
+                <div>
+                  <p className="text-xs uppercase tracking-[0.28em] text-slate/60">Axis</p>
+                  <div className="mt-2 grid grid-cols-3 gap-2">
+                    {(["x", "y", "z"] as SliceAxis[]).map((ax) => (
+                      <button
+                        key={ax}
+                        className={`rounded-xl border px-2 py-1.5 text-xs text-ink ${sliceAxis === ax ? "border-accent bg-accent/10" : ""}`}
+                        style={sliceAxis !== ax ? { borderColor: "var(--color-border)", background: "var(--color-surface-muted)" } : undefined}
+                        onClick={() => setSliceAxis(ax)}
+                      >
+                        {ax.toUpperCase()}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-[0.28em] text-slate/60">
+                    Position ({slicePosition})
+                  </p>
+                  <input
+                    className="mt-2 w-full accent-accent"
+                    type="range"
+                    min={-100}
+                    max={100}
+                    step={1}
+                    value={slicePosition}
+                    onChange={(e) => setSlicePosition(Number(e.target.value))}
+                  />
+                </div>
+                <button
+                  className="rounded-xl border px-3 py-1.5 text-xs text-ink"
+                  style={{ borderColor: "var(--color-border)", background: "var(--color-surface-muted)" }}
+                  onClick={() => setSliceFlip((prev) => !prev)}
+                >
+                  {sliceFlip ? "Flip: inverted" : "Flip: normal"}
+                </button>
+              </>
+            ) : null}
           </div>
         </div>
 
@@ -1247,7 +1618,7 @@ export function ModelViewer() {
             />
             <div className="flex gap-2">
               <button
-                className="rounded-xl bg-gradient-to-r from-accent to-bio px-3 py-2 text-xs font-semibold text-white"
+                className="rounded-xl bg-accent px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-accent/90"
                 onClick={handleCreateAnnotation}
                 disabled={toolMode !== "annotate" || draftPoints.length === 0}
               >
@@ -1309,7 +1680,7 @@ export function ModelViewer() {
               value={compareModelId}
               onChange={(event) => setCompareModelId(event.target.value)}
             />
-            <button className="rounded-xl bg-gradient-to-r from-accent to-bio px-3 py-2 text-xs font-semibold text-white" onClick={handleLoadCompare}>Load</button>
+            <button className="rounded-xl bg-accent px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-accent/90" onClick={handleLoadCompare}>Load</button>
           </div>
           {compareSummary ? (
             <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
@@ -1376,6 +1747,94 @@ export function ModelViewer() {
           <p className="mt-3 rounded-xl border px-3 py-2 text-[11px] text-slate" style={{ borderColor: "var(--color-border)", background: "var(--color-surface-muted)" }}>
             Keyboard shortcuts: 1 top, 2 side, 3 oblique, R reset, F focus, M distance, G angle, A annotate, Esc stop tool.
           </p>
+        </div>
+
+        <div className="rounded-3xl border p-5 shadow-soft" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm font-semibold text-ink">2D ↔ 3D Sync</p>
+            <label className="flex items-center gap-2 text-xs text-ink cursor-pointer">
+              <input type="checkbox" checked={syncPickMode} onChange={(e) => setSyncPickMode(e.target.checked)} />
+              Sync pick mode
+            </label>
+          </div>
+          <div className="mt-3 space-y-3">
+            <label className="block">
+              <span className="rounded-xl border px-3 py-1.5 text-xs text-ink cursor-pointer inline-block" style={{ borderColor: "var(--color-border)", background: "var(--color-surface-muted)" }}>
+                Upload X-ray
+              </span>
+              <input type="file" accept="image/*" className="hidden" onChange={handleXrayUpload} />
+            </label>
+            {xrayImageUrl ? (
+              <div
+                className="relative cursor-crosshair overflow-hidden rounded-xl border"
+                style={{ borderColor: "var(--color-border)" }}
+                onClick={(e) => {
+                  if (!syncPickMode) return;
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  handleSyncPick2D(
+                    (e.clientX - rect.left) / rect.width,
+                    (e.clientY - rect.top) / rect.height
+                  );
+                }}
+              >
+                <img
+                  src={xrayImageUrl}
+                  alt="X-ray"
+                  className="max-h-64 w-full object-contain"
+                  draggable={false}
+                />
+                {xrayMarkers.map((marker, i) => (
+                  <div
+                    key={marker.id}
+                    className="absolute h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow"
+                    style={{
+                      left: `${marker.x2d.x * 100}%`,
+                      top: `${marker.x2d.y * 100}%`,
+                      background: marker.color
+                    }}
+                    title={`#${i + 1}`}
+                  />
+                ))}
+                {pendingMarker?.x2d && !pendingMarker.point3d ? (
+                  <div
+                    className="absolute h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 animate-pulse rounded-full border-2 border-white shadow"
+                    style={{
+                      left: `${pendingMarker.x2d.x * 100}%`,
+                      top: `${pendingMarker.x2d.y * 100}%`,
+                      background: "#eab308"
+                    }}
+                  />
+                ) : null}
+              </div>
+            ) : (
+              <p className="text-xs text-slate">No X-ray uploaded.</p>
+            )}
+            {syncPickMode ? (
+              <p className="rounded-xl border px-3 py-2 text-[11px] text-slate" style={{ borderColor: "var(--color-border)", background: "var(--color-surface-muted)" }}>
+                {pendingMarker?.x2d ? "Now click a point on the 3D model to pair." : pendingMarker?.point3d ? "Now click a point on the X-ray to pair." : "Click on X-ray first, then 3D model (or vice-versa)."}
+              </p>
+            ) : null}
+            {xrayMarkers.length > 0 ? (
+              <div className="space-y-1">
+                <p className="text-xs uppercase tracking-[0.28em] text-slate/60">Paired markers</p>
+                {xrayMarkers.map((marker, i) => (
+                  <div key={marker.id} className="flex items-center justify-between rounded-lg border px-2 py-1 text-xs" style={{ borderColor: "var(--color-border)", background: "var(--color-surface-muted)" }}>
+                    <div className="flex items-center gap-2">
+                      <span className="inline-block h-2.5 w-2.5 rounded-full border border-white/50" style={{ background: marker.color }} />
+                      <span className="font-semibold text-ink">#{i + 1}</span>
+                      <span className="text-slate">2D ✓  3D {marker.point3d ? "✓" : "–"}</span>
+                    </div>
+                    <button
+                      className="text-danger hover:opacity-80"
+                      onClick={() => setXrayMarkers((prev) => prev.filter((m) => m.id !== marker.id))}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
         </div>
 
         <div className="rounded-3xl border border-danger/20 bg-danger/5 p-4 text-xs text-danger">
